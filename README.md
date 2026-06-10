@@ -1,3 +1,3 @@
-# InnovFix
+# InnovFin
 
-InnovFix project repository.
+InnovFin project repository.
