@@ -16,7 +16,7 @@ const WIRING: Record<string, Provider> = {
   "Thedal": "razorpay",
   "Bangalore Connect": "manual",   // PhonePe — manual upload
   "Only Care": "cashfree",
-  "Unman": "appdb",                // dashboard invoice-wise
+  "Unman": "razorpay",             // Razorpay API (app DB available too — cross-check later)
 };
 
 /** "Bangalore Connect" -> "BANGALORE_CONNECT" for env var names. */
