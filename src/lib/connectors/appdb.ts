@@ -6,10 +6,11 @@ export interface AppDbCreds {
   url: string;
   /**
    * SELECT returning invoice-wise sales for the period. Must produce a `Taxable Value`
-   * column (optionally `Invoice Value`, `Invoice No`), with two `?` placeholders bound to
-   * the IST month [from, to] datetimes. Example:
+   * column (optionally `Invoice Value`, `Invoice No`), using the named placeholders
+   * `:from` and `:to` (IST month bounds 'YYYY-MM-DD HH:MM:SS'). Each may appear any number
+   * of times — e.g. across a UNION of several gateway tables. Example:
    *   SELECT id AS `Invoice No`, taxable AS `Taxable Value`, gross AS `Invoice Value`
-   *   FROM sales WHERE status='success' AND created_at BETWEEN ? AND ?
+   *   FROM sales WHERE status='success' AND created_at >= :from AND created_at <= :to
    */
   query?: string;
 }
@@ -46,9 +47,17 @@ export function appDbConnector(app: string, creds?: AppDbCreds): Connector {
       if (!creds.query) throw new Error(`App-DB for ${app}: no query set (APPDB_${envName}_QUERY) — must return a 'Taxable Value' column with two ? placeholders for [from,to].`);
       const { from, to } = monthBounds(period);
       const mysql = await import("mysql2/promise");
-      const conn = await mysql.createConnection(creds.url);
+      const u = new URL(creds.url);
+      const conn = await mysql.createConnection({
+        host: u.hostname,
+        port: u.port ? Number(u.port) : 3306,
+        user: decodeURIComponent(u.username),
+        password: decodeURIComponent(u.password),
+        database: decodeURIComponent(u.pathname.replace(/^\//, "")),
+        namedPlaceholders: true,
+      });
       try {
-        const [rows] = await conn.query(creds.query, [from, to]);
+        const [rows] = await conn.query(creds.query, { from, to });
         const aoa = rowsToAOA(rows as Record<string, unknown>[]);
         return { aoa, count: Math.max(0, aoa.length - 1), source: `App-DB (${app})` };
       } finally {

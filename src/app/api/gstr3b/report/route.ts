@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { computeGstr3b } from "@/gst-core/gstr3b";
 import { buildGstr3bWorkbook } from "@/lib/gstr3b-report";
-import { gstr3bInputSchema } from "@/lib/gstr3b-input";
+import { gstr3bInputSchema, resolveRcm } from "@/lib/gstr3b-input";
 
 export const runtime = "nodejs";
 
@@ -11,9 +11,10 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues }, { status: 400 });
   }
-  const result = computeGstr3b(parsed.data);
+  const { input } = resolveRcm(parsed.data);
+  const result = computeGstr3b(input);
   const buf = buildGstr3bWorkbook(result);
-  const safePeriod = parsed.data.period.replace(/[^0-9A-Za-z_-]/g, "");
+  const safePeriod = input.period.replace(/[^0-9A-Za-z_-]/g, "");
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

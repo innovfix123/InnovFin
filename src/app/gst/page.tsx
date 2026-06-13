@@ -155,8 +155,8 @@ export default function GstWizard() {
       {step === 1 && (
         <section className="space-y-4">
           <p className="text-sm text-zinc-500">
-            Sources auto-fetch where API/DB access is configured. PhonePe is always a manual upload; any
-            not-yet-configured source can be uploaded manually as a fallback.
+            Sources auto-fetch where API/DB access is configured; any not-yet-configured
+            source can be uploaded manually as a fallback.
           </p>
           <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
             <table className="min-w-full divide-y divide-zinc-200 text-sm">
