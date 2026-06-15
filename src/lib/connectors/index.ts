@@ -8,11 +8,14 @@ export type { Connector, Provider, FetchResult } from "./types";
 
 /**
  * Which source auto-feeds each app (chosen to match each app's validated parser type).
- * All four apps auto-fetch (gateway API or app DB). Bank + GSTR-2B remain manual.
+ * Hima/Sudar/Thedal/Only Care/Unman auto-fetch; Bangalore Connect (PhonePe) is a manual
+ * upload. Bank statements + GSTR-2B are also manual.
  */
 const WIRING: Record<string, Provider> = {
   "Hima": "appdb",                 // dashboard invoice-wise
   "Sudar": "razorpay",
+  "Thedal": "razorpay",
+  "Bangalore Connect": "manual",   // PhonePe — manual upload
   "Only Care": "cashfree",
   "Unman": "razorpay",             // Razorpay API (app DB available too — cross-check later)
 };

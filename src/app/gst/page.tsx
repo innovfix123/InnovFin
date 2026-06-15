@@ -16,8 +16,11 @@ type SalesResult = {
 };
 type Trip = { igst: number; cgst: number; sgst: number };
 type TaxRow = { taxable: number; igst: number; cgst: number; sgst: number };
+type Check = { label: string; expected: number; actual: number; diff: number; ok: boolean };
+type ReconReport = { checks: Check[]; ok: boolean };
 type Gstr3bResult = {
   period: string;
+  reconciliation?: { gstr1Vs3b: ReconReport; internal: ReconReport };
   table31: { outwardTaxable: TaxRow; rcmLiability: TaxRow; total: TaxRow };
   table4: { totalAvailable: Trip; net: Trip; itcRcm: Trip; itcOther: Trip };
   table61: Record<"igst" | "cgst" | "sgst", { liability: number; itcUsed: number; cash: number }>;
@@ -53,6 +56,9 @@ export default function GstWizard() {
   const [rent, setRent] = useState<{ taxable: number; cgst: number; sgst: number }>({ taxable: 0, cgst: 0, sgst: 0 });
   const [lateFee, setLateFee] = useState(0);
   const [interest, setInterest] = useState(0);
+  const [rcmReview, setRcmReview] = useState<{ vendor: string; amount: number; category: string; reason: string }[]>([]);
+  const [rcmNote, setRcmNote] = useState<string>("");
+  const [itcInfo, setItcInfo] = useState<string>("");
 
   const [g3, setG3] = useState<Gstr3bResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -112,6 +118,53 @@ export default function GstWizard() {
     URL.revokeObjectURL(url);
   }
 
+  async function downloadGstr1() {
+    if (!sales) return;
+    const res = await fetch("/api/gstr1/report", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ period, lines: sales.lines, total: sales.total }),
+    });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `Innovfix GSTR-1 ${period}.xlsx`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function uploadGstr2b(file: File) {
+    setBusy(true); setError(null);
+    try {
+      const fd = new FormData(); fd.set("file", file);
+      const res = await fetch("/api/gstr2b/parse", { method: "POST", body: fd });
+      const r = await res.json();
+      if (!res.ok) throw new Error(r.error || `GSTR-2B parse failed (${res.status})`);
+      setItc({ taxable: r.itcAvailable.taxable || 0, igst: r.itcAvailable.igst || 0, cgst: r.itcAvailable.cgst || 0, sgst: r.itcAvailable.sgst || 0 });
+      setItcInfo(`Parsed ${r.invoiceCount} B2B invoices → Table 4(A)(5) ITC auto-filled.`);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function uploadBankRcm(file: File) {
+    setBusy(true); setError(null); setRcmReview([]); setRcmNote("");
+    try {
+      const fd = new FormData(); fd.set("file", file);
+      const res = await fetch("/api/rcm/parse", { method: "POST", body: fd });
+      const r = await res.json();
+      if (!res.ok) throw new Error(r.error || `RCM parse failed (${res.status})`);
+      setForeign({ taxable: r.foreign.taxable || 0, igst: r.foreign.igst || 0 });
+      setRent({ taxable: r.rent.taxable || 0, cgst: r.rent.cgst || 0, sgst: r.rent.sgst || 0 });
+      setRcmReview(r.review || []);
+      setRcmNote(r.note || "");
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+
+  function addReview(item: { vendor: string; amount: number; category: string; reason: string }) {
+    if (item.category === "rent") setRent((r) => { const t = r.taxable + item.amount; return { taxable: t, cgst: round2(t * 0.09), sgst: round2(t * 0.09) }; });
+    else setForeign((f) => { const t = f.taxable + item.amount; return { taxable: t, igst: round2(t * 0.18) }; });
+    setRcmReview((rv) => rv.filter((x) => x !== item));
+  }
+
   const statusFor = (app: string) => sales?.sources.find((s) => s.app === app);
 
   return (
@@ -126,7 +179,7 @@ export default function GstWizard() {
           <label className="flex items-center gap-2 text-sm">
             <span className="font-medium text-zinc-600">Return month</span>
             <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)}
-              className="rounded-md border border-zinc-300 bg-white px-2 py-1.5" />
+              className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-zinc-900 [color-scheme:light]" />
           </label>
         </div>
       </header>
@@ -135,7 +188,10 @@ export default function GstWizard() {
       <ol className="mb-8 flex items-center gap-2 text-sm">
         {STEPS.map((label, i) => {
           const n = i + 1;
-          const active = n === step, done = n < step;
+          // A step is "done" (green ✓) once you've passed it — and the final Review & File
+          // step turns green too once the GSTR-3B is computed (you're ready to file).
+          const done = n < step || (n === step && n === STEPS.length && !!g3);
+          const active = n === step && !done;
           return (
             <li key={label} className="flex flex-1 items-center gap-2">
               <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
@@ -207,6 +263,12 @@ export default function GstWizard() {
               className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">
               {busy ? "Fetching…" : "Fetch & compute GSTR-1"}
             </button>
+            {sales && sales.lines.length > 0 && (
+              <button onClick={downloadGstr1}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                ⬇ Download GSTR-1 report
+              </button>
+            )}
             <button onClick={() => setStep(2)} disabled={!sales || sales.lines.length === 0}
               className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50">
               Next: Purchases / RCM →
@@ -220,7 +282,12 @@ export default function GstWizard() {
         <section className="space-y-6">
           <div className="rounded-xl border border-zinc-200 bg-white p-4">
             <h3 className="font-semibold text-zinc-800">GSTR-2B — Input Tax Credit (Table 4(A)(5))</h3>
-            <p className="mb-3 text-xs text-zinc-500">From the GSTR-2B downloaded from the portal. (Auto-parse of the 2B file is coming; enter the totals for now.)</p>
+            <p className="mb-3 text-xs text-zinc-500">Upload the GSTR-2B downloaded from the portal — the 4(A)(5) ITC is auto-extracted (you can still edit below before computing).</p>
+            <label className="mb-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100">
+              ⬆ Upload GSTR-2B (.xlsx)
+              <input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadGstr2b(f); }} />
+            </label>
+            {itcInfo && <p className="mb-2 text-xs text-emerald-600">{itcInfo}</p>}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <NumField label="Taxable" value={itc.taxable} onChange={(v) => setItc({ ...itc, taxable: v })} />
               <NumField label="IGST" value={itc.igst} onChange={(v) => setItc({ ...itc, igst: v })} />
@@ -231,7 +298,12 @@ export default function GstWizard() {
 
           <div className="rounded-xl border border-zinc-200 bg-white p-4">
             <h3 className="font-semibold text-zinc-800">RCM — Reverse charge (Table 3.1(d))</h3>
-            <p className="mb-3 text-xs text-zinc-500">Foreign vendors → IGST 18%; unregistered rent → CGST+SGST 9%. (Auto-classification from the bank statement is coming; enter for now.)</p>
+            <p className="mb-3 text-xs text-zinc-500">Upload bank statements (or a categorised RCM pivot). A pivot is read exactly; raw statements are keyword-matched and AI-suggested for review. Foreign → IGST 18%; unregistered rent → CGST+SGST 9%.</p>
+            <label className="mb-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100">
+              ⬆ Upload bank statement / RCM pivot
+              <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadBankRcm(f); }} />
+            </label>
+            {rcmNote && <p className="mb-2 text-xs text-zinc-500">{rcmNote}</p>}
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <p className="mb-1 text-xs font-medium text-zinc-600">Foreign (import of services)</p>
@@ -249,6 +321,19 @@ export default function GstWizard() {
                 </div>
               </div>
             </div>
+            {rcmReview.length > 0 && (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <p className="mb-2 text-xs font-semibold text-amber-800">⚠ AI suggestions — confirm before adding to RCM ({rcmReview.length})</p>
+                <ul className="space-y-1 text-xs">
+                  {rcmReview.map((it, i) => (
+                    <li key={i} className="flex items-center justify-between gap-2">
+                      <span className="truncate text-zinc-700"><span className="rounded bg-zinc-200 px-1 py-0.5 text-[10px] uppercase">{it.category}</span> {it.vendor} — ₹{inr(it.amount)} <span className="text-zinc-400">· {it.reason}</span></span>
+                      <button onClick={() => addReview(it)} className="shrink-0 rounded border border-amber-300 bg-white px-2 py-0.5 text-amber-700 hover:bg-amber-100">+ add</button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:max-w-xs">
@@ -277,6 +362,25 @@ export default function GstWizard() {
             </p>
           </div>
 
+          {g3.reconciliation && (
+            <div className="rounded-xl border border-zinc-200 bg-white p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-zinc-700">Review — reconciliation checks</h3>
+                {g3.reconciliation.gstr1Vs3b.ok && g3.reconciliation.internal.ok
+                  ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">✓ all passed — safe to file</span>
+                  : <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">⚠ review needed</span>}
+              </div>
+              <ul className="space-y-1 text-xs">
+                {[...g3.reconciliation.gstr1Vs3b.checks, ...g3.reconciliation.internal.checks].map((c, i) => (
+                  <li key={i} className="flex items-center justify-between gap-3">
+                    <span className="text-zinc-600"><span className={c.ok ? "text-emerald-600" : "text-red-600"}>{c.ok ? "✓" : "✗"}</span> {c.label}</span>
+                    <span className={`tabular-nums ${c.ok ? "text-zinc-400" : "font-semibold text-red-600"}`}>Δ {inr(c.diff)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <MiniTable title="Table 6.1 — Payment of tax" head={["", "Liability", "ITC used", "Cash"]}
             rows={(["igst", "cgst", "sgst"] as const).map((k) => [k.toUpperCase(), inr(g3.table61[k].liability), inr(g3.table61[k].itcUsed), inr(g3.table61[k].cash)])} />
 
@@ -287,12 +391,25 @@ export default function GstWizard() {
               ["TOTAL CHALLAN", inr(g3.cashChallan.total.igst), inr(g3.cashChallan.total.cgst), inr(g3.cashChallan.total.sgst), inr(g3.cashChallan.total.grandTotal)],
             ]} />
 
-          <div className="flex items-center gap-3">
-            <button onClick={() => setStep(2)} className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">← Back</button>
-            <button onClick={downloadReport} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
-              ⬇ Download final GSTR-3B report
-            </button>
+          <div className="rounded-xl border border-zinc-200 bg-white p-4">
+            <h3 className="mb-1 text-sm font-semibold text-zinc-700">File on the GST portal</h3>
+            <p className="mb-3 text-xs text-zinc-500">
+              InnovFin prepares the figures; the return is submitted on the government portal. Download the working,
+              enter the <span className="font-medium">Table 6.1</span> amounts on the portal, and pay the challan of
+              <span className="font-medium"> ₹{inr(g3.cashChallan.total.grandTotal)}</span>.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <button onClick={downloadReport} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                ⬇ Download final GSTR-3B report
+              </button>
+              <a href="https://www.gst.gov.in" target="_blank" rel="noreferrer"
+                className="rounded-lg border border-indigo-300 bg-white px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50">
+                Open GST portal ↗
+              </a>
+            </div>
           </div>
+
+          <button onClick={() => setStep(2)} className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">← Back</button>
         </section>
       )}
     </div>
@@ -307,7 +424,7 @@ function NumField({ label, value, onChange }: { label: string; value: number; on
       <span className="mb-1 block text-xs font-medium text-zinc-600">{label}</span>
       <input type="number" inputMode="decimal" value={Number.isFinite(value) ? value : 0}
         onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-        className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-right text-sm tabular-nums" />
+        className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-right text-sm tabular-nums text-zinc-900" />
     </label>
   );
 }

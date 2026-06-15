@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "InnovFin — Finance & Compliance Ops",
-  description: "Automated GST & compliance operations for Innovfix Private Limited.",
+  title: "InnovFin Automations — Finance & Compliance Platform",
+  description: "Finance & compliance automation platform for Innovfix Private Limited — GST filing and more.",
 };
 
 export default function RootLayout({

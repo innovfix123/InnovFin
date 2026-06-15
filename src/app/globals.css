@@ -3,6 +3,7 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  color-scheme: light; /* render native controls (date picker, scrollbars) light */
 }
 
 @theme inline {
@@ -12,15 +13,42 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* App is a light-themed cockpit (white cards, zinc text); we don't follow OS dark mode. */
 
 body {
-  background: var(--background);
+  background: linear-gradient(160deg, #dbeafe 0%, #e0e7ff 45%, #f3e8ff 100%);
+  background-attachment: fixed;
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* --- Motion: subtle, professional entrance + ambient animations --- */
+@keyframes if-fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes if-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes if-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-22px); }
+}
+
+/* Entrance: start hidden, settle into place once (fill-mode: both). */
+.if-reveal { opacity: 0; animation: if-fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.if-fade { opacity: 0; animation: if-fade 0.9s ease-out both; }
+
+/* Ambient: slow drift on the decorative background glows. */
+.if-float { animation: if-float 16s ease-in-out infinite; }
+.if-float-slow { animation: if-float 22s ease-in-out infinite; animation-delay: -7s; }
+
+/* Honour users who ask for less motion — show the final state, no movement. */
+@media (prefers-reduced-motion: reduce) {
+  .if-reveal, .if-fade, .if-float, .if-float-slow {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }

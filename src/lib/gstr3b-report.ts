@@ -1,5 +1,20 @@
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 import type { Gstr3bResult } from "@/gst-core/gstr3b";
+
+const CYAN = "A6D8EC";   // section / header bands
+const GREEN = "C6E0B4";  // total rows
+const HEADTXT = "1F3864"; // dark navy header text
+const MONEY_FMT = '#,##0.00;-#,##0.00;"-"';
+const THIN = { style: "thin", color: { rgb: "808080" } };
+const BORDER = { top: THIN, bottom: THIN, left: THIN, right: THIN };
+
+type CellStyle = Record<string, unknown>;
+function setStyle(ws: XLSX.WorkSheet, r: number, c: number, s: CellStyle): void {
+  const ref = XLSX.utils.encode_cell({ r, c });
+  const cell = ws[ref] as (XLSX.CellObject & { s?: CellStyle }) | undefined;
+  if (cell) cell.s = s;
+  else (ws as Record<string, unknown>)[ref] = { t: "s", v: "", s };
+}
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -72,7 +87,34 @@ export function buildGstr3bWorkbook(g3: Gstr3bResult): Buffer {
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws["!cols"] = [{ wch: 38 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
+  ws["!cols"] = [{ wch: 40 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
+
+  // Style: cyan section/header bands, green totals, borders + comma/2-dp numbers (zeros → "–").
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.length === 0) continue;
+    const label = String(row[0] ?? "").trim();
+    const isTitle = r <= 3;
+    const isSection = /^(TABLE\b|ITC OFFSET|CASH CHALLAN)/i.test(label);
+    const isTotal = /^total\b/i.test(label);
+    for (let c = 0; c < row.length; c++) {
+      const isNum = typeof row[c] === "number";
+      let s: CellStyle;
+      if (isTitle) {
+        s = { font: { bold: true, sz: r === 0 ? 14 : 10, color: { rgb: r === 0 ? HEADTXT : "595959" } } };
+      } else if (isSection) {
+        s = { font: { bold: true, color: { rgb: HEADTXT } }, fill: { patternType: "solid", fgColor: { rgb: CYAN } }, border: BORDER, alignment: { vertical: "center", horizontal: c === 0 ? "left" : "center", wrapText: true } };
+      } else if (isTotal) {
+        s = { font: { bold: true }, fill: { patternType: "solid", fgColor: { rgb: GREEN } }, border: { ...BORDER, top: { style: "medium", color: { rgb: "548235" } } }, alignment: { vertical: "center", horizontal: isNum ? "right" : "left" } };
+        if (isNum) s.numFmt = MONEY_FMT;
+      } else {
+        s = { border: BORDER, alignment: { vertical: "center", horizontal: isNum ? "right" : "left" } };
+        if (isNum) s.numFmt = MONEY_FMT;
+      }
+      setStyle(ws, r, c, s);
+    }
+  }
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "GSTR-3B Summary");
   return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;

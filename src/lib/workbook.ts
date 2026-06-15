@@ -19,3 +19,13 @@ export function sheetNames(buf: Buffer | Uint8Array): string[] {
   const wb = XLSX.read(buf, { type: "buffer", bookSheets: true });
   return wb.SheetNames;
 }
+
+/** Read every sheet of a workbook into a {sheetName -> AOA} map (for multi-sheet files like GSTR-2B). */
+export function bufferToSheets(buf: Buffer | Uint8Array): Record<string, AOA> {
+  const wb = XLSX.read(buf, { type: "buffer", cellDates: true, raw: false });
+  const out: Record<string, AOA> = {};
+  for (const name of wb.SheetNames) {
+    out[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: null }) as AOA;
+  }
+  return out;
+}

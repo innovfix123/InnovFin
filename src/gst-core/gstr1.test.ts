@@ -136,9 +136,11 @@ describe("summarise()", () => {
 });
 
 describe("app config (matches the validated code, not the transcript)", () => {
-  it("has 4 apps; Unman defaults to invoicewise; HSNs are correct", () => {
-    expect(APP_ORDER.length).toBe(4);
+  it("has 6 apps; Unman defaults to invoicewise; HSNs are correct", () => {
+    expect(APP_ORDER.length).toBe(6);
     expect(APP_DEFAULTS["Unman"].type).toBe("invoicewise");
+    expect(APP_DEFAULTS["Thedal"].hsn).toBe(998433);
+    expect(APP_DEFAULTS["Bangalore Connect"].hsn).toBe(998599);
     expect(APP_DEFAULTS["Sudar"].hsn).toBe(999299);
     expect(GST_RATE).toBe(0.18);
   });
