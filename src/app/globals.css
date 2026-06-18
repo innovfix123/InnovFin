@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  color-scheme: light; /* render native controls (date picker, scrollbars) light */
+  --background: #09090b;
+  --foreground: #e4e4e7;
+  color-scheme: dark; /* render native controls (date picker, scrollbars) dark */
 }
 
 @theme inline {
@@ -13,10 +13,11 @@
   --font-mono: var(--font-geist-mono);
 }
 
-/* App is a light-themed cockpit (white cards, zinc text); we don't follow OS dark mode. */
+/* App is a dark cockpit (deep indigo canvas, translucent cards); we don't follow OS light mode. */
 
 body {
-  background: linear-gradient(160deg, #dbeafe 0%, #e0e7ff 45%, #f3e8ff 100%);
+  background-color: #09090b;
+  background-image: radial-gradient(125% 120% at 50% 0%, #221c52 0%, #0c0c18 42%, #09090b 100%);
   background-attachment: fixed;
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
@@ -44,6 +45,18 @@ body {
 .if-float { animation: if-float 16s ease-in-out infinite; }
 .if-float-slow { animation: if-float 22s ease-in-out infinite; animation-delay: -7s; }
 
+/* Hero: a sheen of light flows across the brand heading (tuned for a dark bg). */
+@keyframes if-shimmer { to { background-position: 200% center; } }
+.if-gradient-text {
+  background-image: linear-gradient(100deg, #a5b4fc 0%, #c4b5fd 25%, #f5f3ff 50%, #c4b5fd 75%, #a5b4fc 100%);
+  background-size: 200% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: if-shimmer 5s linear infinite;
+}
+
 /* Honour users who ask for less motion — show the final state, no movement. */
 @media (prefers-reduced-motion: reduce) {
   .if-reveal, .if-fade, .if-float, .if-float-slow {
@@ -51,4 +64,5 @@ body {
     opacity: 1 !important;
     transform: none !important;
   }
+  .if-gradient-text { animation: none !important; }
 }

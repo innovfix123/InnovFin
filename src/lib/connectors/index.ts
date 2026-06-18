@@ -8,14 +8,11 @@ export type { Connector, Provider, FetchResult } from "./types";
 
 /**
  * Which source auto-feeds each app (chosen to match each app's validated parser type).
- * Hima/Sudar/Thedal/Only Care/Unman auto-fetch; Bangalore Connect (PhonePe) is a manual
- * upload. Bank statements + GSTR-2B are also manual.
+ * All active apps auto-fetch (gateway API or app DB). Bank statements + GSTR-2B are manual.
  */
 const WIRING: Record<string, Provider> = {
   "Hima": "appdb",                 // dashboard invoice-wise
   "Sudar": "razorpay",
-  "Thedal": "razorpay",
-  "Bangalore Connect": "manual",   // PhonePe — manual upload
   "Only Care": "cashfree",
   "Unman": "razorpay",             // Razorpay API (app DB available too — cross-check later)
 };
@@ -46,11 +43,13 @@ function cashfreeCreds(app: string): CashfreeCreds | undefined {
  */
 const DEFAULT_APPDB_QUERY: Record<string, string> = {
   "Hima":
-    "SELECT price/1.18 AS `Taxable Value`, price AS `Invoice Value` FROM (" +
-    " SELECT c.price AS price FROM phonepe_payments p JOIN coins c ON c.id=p.coin_id" +
+    "SELECT order_id AS `Invoice No`, dt AS `Invoice Date`, price AS `Invoice Value`," +
+    " price/1.18 AS `Taxable Value`, price*0.09/1.18 AS `CGST`, price*0.09/1.18 AS `SGST`," +
+    " gw AS `Gateway` FROM (" +
+    " SELECT p.order_id, p.datetime AS dt, c.price AS price, 'PhonePe' AS gw FROM phonepe_payments p JOIN coins c ON c.id=p.coin_id" +
     " WHERE p.checked=1 AND p.status=1 AND p.datetime>=:from AND p.datetime<=:to" +
     " UNION ALL" +
-    " SELECT c.price AS price FROM cashfree_payments p JOIN coins c ON c.id=p.coin_id" +
+    " SELECT p.order_id, p.datetime AS dt, c.price AS price, 'Cashfree' AS gw FROM cashfree_payments p JOIN coins c ON c.id=p.coin_id" +
     " WHERE p.status=1 AND p.datetime>=:from AND p.datetime<=:to" +
     ") x",
 };

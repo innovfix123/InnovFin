@@ -170,16 +170,16 @@ export default function GstWizard() {
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-8">
       <header className="mb-6">
-        <nav className="mb-3 text-sm"><Link href="/" className="text-zinc-500 hover:text-zinc-800">← InnovFin</Link></nav>
+        <nav className="mb-3 text-sm"><Link href="/" className="text-zinc-400 transition-colors hover:text-white">← InnovFin</Link></nav>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">GST Filing</h1>
-            <p className="text-sm text-zinc-500">Innovfix Private Limited · GSTIN 29AAICI1603A1Z3</p>
+            <h1 className="text-2xl font-bold tracking-tight text-white">GST Filing</h1>
+            <p className="text-sm text-zinc-400">Innovfix Private Limited · GSTIN 29AAICI1603A1Z3</p>
           </div>
           <label className="flex items-center gap-2 text-sm">
-            <span className="font-medium text-zinc-600">Return month</span>
+            <span className="font-medium text-zinc-400">Return month</span>
             <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)}
-              className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-zinc-900 [color-scheme:light]" />
+              className="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-zinc-100 [color-scheme:dark]" />
           </label>
         </div>
       </header>
@@ -195,82 +195,82 @@ export default function GstWizard() {
           return (
             <li key={label} className="flex flex-1 items-center gap-2">
               <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                active ? "bg-indigo-600 text-white" : done ? "bg-emerald-500 text-white" : "bg-zinc-200 text-zinc-500"}`}>
+                active ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/30" : done ? "bg-emerald-500 text-white" : "bg-white/10 text-zinc-500"}`}>
                 {done ? "✓" : n}
               </span>
-              <span className={`truncate ${active ? "font-semibold text-zinc-900" : "text-zinc-500"}`}>{label}</span>
-              {n < STEPS.length && <span className="mx-1 h-px flex-1 bg-zinc-200" />}
+              <span className={`truncate ${active ? "font-semibold text-white" : "text-zinc-500"}`}>{label}</span>
+              {n < STEPS.length && <span className="mx-1 h-px flex-1 bg-white/10" />}
             </li>
           );
         })}
       </ol>
 
-      {error && <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="mb-4 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
 
       {/* STEP 1 — SALES */}
       {step === 1 && (
         <section className="space-y-4">
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-zinc-400">
             Sources auto-fetch where API/DB access is configured; any not-yet-configured
             source can be uploaded manually as a fallback.
           </p>
-          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
-            <table className="min-w-full divide-y divide-zinc-200 text-sm">
-              <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500">
+          <div className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.025]">
+            <table className="min-w-full divide-y divide-white/10 text-sm">
+              <thead className="bg-white/5 text-left text-xs uppercase tracking-wide text-zinc-400">
                 <tr><th className="px-3 py-2">App</th><th className="px-3 py-2">Source</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Manual upload (fallback)</th><th className="px-3 py-2 text-right">Taxable</th></tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100">
+              <tbody className="divide-y divide-white/5">
                 {plan.map((s) => {
                   const st = statusFor(s.app);
                   const auto = s.mode === "auto" && s.configured;
                   return (
-                    <tr key={s.app}>
-                      <td className="px-3 py-2 font-medium text-zinc-800">{s.app}<span className="ml-2 text-xs text-zinc-400">HSN {s.hsn}</span></td>
-                      <td className="px-3 py-2 text-zinc-600">
-                        <span className={`rounded-full px-2 py-0.5 text-xs ${auto ? "bg-emerald-100 text-emerald-700" : s.mode === "manual" ? "bg-amber-100 text-amber-700" : "bg-zinc-100 text-zinc-600"}`}>
+                    <tr key={s.app} className="transition-colors hover:bg-white/[0.025]">
+                      <td className="px-3 py-2 font-medium text-zinc-100">{s.app}<span className="ml-2 text-xs text-zinc-500">HSN {s.hsn}</span></td>
+                      <td className="px-3 py-2 text-zinc-300">
+                        <span className={`rounded-full px-2 py-0.5 text-xs ${auto ? "bg-emerald-500/15 text-emerald-300" : s.mode === "manual" ? "bg-amber-500/15 text-amber-300" : "bg-white/10 text-zinc-400"}`}>
                           {auto ? "Auto ✓" : s.mode === "manual" ? "Manual" : "Auto · add key"}
                         </span>
-                        <span className="ml-2 text-xs text-zinc-400">{PROVIDER_LABEL[s.provider] ?? s.provider}</span>
+                        <span className="ml-2 text-xs text-zinc-500">{PROVIDER_LABEL[s.provider] ?? s.provider}</span>
                       </td>
                       <td className="px-3 py-2">
                         {st ? (
-                          <span className={st.status === "ok" ? "text-emerald-600" : st.status === "error" ? "text-red-600" : "text-amber-600"}>
+                          <span className={st.status === "ok" ? "text-emerald-400" : st.status === "error" ? "text-red-400" : "text-amber-400"}>
                             {st.status === "ok" ? `✓ ${st.count ?? 0} txns` : st.status === "error" ? "error" : "pending"}
                           </span>
-                        ) : <span className="text-zinc-400">—</span>}
-                        {st?.message && <span className="ml-1 text-xs text-zinc-400">{st.message}</span>}
+                        ) : <span className="text-zinc-600">—</span>}
+                        {st?.message && <span className="ml-1 text-xs text-zinc-500">{st.message}</span>}
                       </td>
                       <td className="px-3 py-2">
                         <input type="file" accept=".csv,.xlsx,.xls"
                           onChange={(e) => setFiles((f) => ({ ...f, [s.app]: e.target.files?.[0] }))}
-                          className="block w-full max-w-[200px] text-xs text-zinc-600 file:mr-2 file:rounded file:border-0 file:bg-zinc-100 file:px-2 file:py-1 file:text-xs hover:file:bg-zinc-200" />
-                        {files[s.app] && <span className="text-xs text-emerald-600">✓ {files[s.app]?.name}</span>}
+                          className="block w-full max-w-[200px] text-xs text-zinc-400 file:mr-2 file:rounded file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-xs file:text-zinc-200 hover:file:bg-white/20" />
+                        {files[s.app] && <span className="text-xs text-emerald-400">✓ {files[s.app]?.name}</span>}
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums">{st?.taxable != null ? inr(st.taxable) : "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-zinc-300">{st?.taxable != null ? inr(st.taxable) : "—"}</td>
                     </tr>
                   );
                 })}
               </tbody>
               {sales && (
-                <tfoot className="bg-zinc-50 font-semibold">
-                  <tr><td className="px-3 py-2" colSpan={4}>GSTR-1 total taxable {tieOut && <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">✓ tie-out</span>}</td><td className="px-3 py-2 text-right tabular-nums">{inr(sales.total.taxable)}</td></tr>
+                <tfoot className="bg-white/5 font-semibold text-white">
+                  <tr><td className="px-3 py-2" colSpan={4}>GSTR-1 total taxable {tieOut && <span className="ml-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">✓ tie-out</span>}</td><td className="px-3 py-2 text-right tabular-nums">{inr(sales.total.taxable)}</td></tr>
                 </tfoot>
               )}
             </table>
           </div>
           <div className="flex items-center gap-3">
             <button onClick={runSales} disabled={busy}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">
+              className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 hover:bg-indigo-400 disabled:opacity-50">
               {busy ? "Fetching…" : "Fetch & compute GSTR-1"}
             </button>
             {sales && sales.lines.length > 0 && (
               <button onClick={downloadGstr1}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 hover:bg-emerald-400">
                 ⬇ Download GSTR-1 report
               </button>
             )}
             <button onClick={() => setStep(2)} disabled={!sales || sales.lines.length === 0}
-              className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50">
+              className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-white/10 disabled:opacity-50">
               Next: Purchases / RCM →
             </button>
           </div>
@@ -280,14 +280,14 @@ export default function GstWizard() {
       {/* STEP 2 — PURCHASES / RCM */}
       {step === 2 && (
         <section className="space-y-6">
-          <div className="rounded-xl border border-zinc-200 bg-white p-4">
-            <h3 className="font-semibold text-zinc-800">GSTR-2B — Input Tax Credit (Table 4(A)(5))</h3>
-            <p className="mb-3 text-xs text-zinc-500">Upload the GSTR-2B downloaded from the portal — the 4(A)(5) ITC is auto-extracted (you can still edit below before computing).</p>
-            <label className="mb-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100">
+          <div className="rounded-xl border border-white/10 bg-white/[0.025] p-4">
+            <h3 className="font-semibold text-zinc-100">GSTR-2B — Input Tax Credit (Table 4(A)(5))</h3>
+            <p className="mb-3 text-xs text-zinc-400">Upload the GSTR-2B downloaded from the portal — the 4(A)(5) ITC is auto-extracted (you can still edit below before computing).</p>
+            <label className="mb-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-indigo-400/30 bg-indigo-500/10 px-3 py-2 text-sm font-medium text-indigo-300 hover:bg-indigo-500/20">
               ⬆ Upload GSTR-2B (.xlsx)
               <input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadGstr2b(f); }} />
             </label>
-            {itcInfo && <p className="mb-2 text-xs text-emerald-600">{itcInfo}</p>}
+            {itcInfo && <p className="mb-2 text-xs text-emerald-400">{itcInfo}</p>}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <NumField label="Taxable" value={itc.taxable} onChange={(v) => setItc({ ...itc, taxable: v })} />
               <NumField label="IGST" value={itc.igst} onChange={(v) => setItc({ ...itc, igst: v })} />
@@ -296,24 +296,24 @@ export default function GstWizard() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-zinc-200 bg-white p-4">
-            <h3 className="font-semibold text-zinc-800">RCM — Reverse charge (Table 3.1(d))</h3>
-            <p className="mb-3 text-xs text-zinc-500">Upload bank statements (or a categorised RCM pivot). A pivot is read exactly; raw statements are keyword-matched and AI-suggested for review. Foreign → IGST 18%; unregistered rent → CGST+SGST 9%.</p>
-            <label className="mb-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100">
+          <div className="rounded-xl border border-white/10 bg-white/[0.025] p-4">
+            <h3 className="font-semibold text-zinc-100">RCM — Reverse charge (Table 3.1(d))</h3>
+            <p className="mb-3 text-xs text-zinc-400">Upload bank statements (or a categorised RCM pivot). A pivot is read exactly; raw statements are keyword-matched and AI-suggested for review. Foreign → IGST 18%; unregistered rent → CGST+SGST 9%.</p>
+            <label className="mb-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-indigo-400/30 bg-indigo-500/10 px-3 py-2 text-sm font-medium text-indigo-300 hover:bg-indigo-500/20">
               ⬆ Upload bank statement / RCM pivot
               <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadBankRcm(f); }} />
             </label>
-            {rcmNote && <p className="mb-2 text-xs text-zinc-500">{rcmNote}</p>}
+            {rcmNote && <p className="mb-2 text-xs text-zinc-400">{rcmNote}</p>}
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <p className="mb-1 text-xs font-medium text-zinc-600">Foreign (import of services)</p>
+                <p className="mb-1 text-xs font-medium text-zinc-400">Foreign (import of services)</p>
                 <div className="grid grid-cols-2 gap-3">
                   <NumField label="Taxable (₹ paid)" value={foreign.taxable} onChange={(v) => setForeign({ taxable: v, igst: round2(v * 0.18) })} />
                   <NumField label="IGST" value={foreign.igst} onChange={(v) => setForeign({ ...foreign, igst: v })} />
                 </div>
               </div>
               <div>
-                <p className="mb-1 text-xs font-medium text-zinc-600">Rent (unregistered landlords)</p>
+                <p className="mb-1 text-xs font-medium text-zinc-400">Rent (unregistered landlords)</p>
                 <div className="grid grid-cols-3 gap-3">
                   <NumField label="Taxable" value={rent.taxable} onChange={(v) => setRent({ taxable: v, cgst: round2(v * 0.09), sgst: round2(v * 0.09) })} />
                   <NumField label="CGST" value={rent.cgst} onChange={(v) => setRent({ ...rent, cgst: v })} />
@@ -322,13 +322,13 @@ export default function GstWizard() {
               </div>
             </div>
             {rcmReview.length > 0 && (
-              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                <p className="mb-2 text-xs font-semibold text-amber-800">⚠ AI suggestions — confirm before adding to RCM ({rcmReview.length})</p>
+              <div className="mt-4 rounded-lg border border-amber-400/20 bg-amber-500/10 p-3">
+                <p className="mb-2 text-xs font-semibold text-amber-300">⚠ AI suggestions — confirm before adding to RCM ({rcmReview.length})</p>
                 <ul className="space-y-1 text-xs">
                   {rcmReview.map((it, i) => (
                     <li key={i} className="flex items-center justify-between gap-2">
-                      <span className="truncate text-zinc-700"><span className="rounded bg-zinc-200 px-1 py-0.5 text-[10px] uppercase">{it.category}</span> {it.vendor} — ₹{inr(it.amount)} <span className="text-zinc-400">· {it.reason}</span></span>
-                      <button onClick={() => addReview(it)} className="shrink-0 rounded border border-amber-300 bg-white px-2 py-0.5 text-amber-700 hover:bg-amber-100">+ add</button>
+                      <span className="truncate text-zinc-300"><span className="rounded bg-white/10 px-1 py-0.5 text-[10px] uppercase text-zinc-300">{it.category}</span> {it.vendor} — ₹{inr(it.amount)} <span className="text-zinc-500">· {it.reason}</span></span>
+                      <button onClick={() => addReview(it)} className="shrink-0 rounded border border-amber-400/30 bg-amber-500/10 px-2 py-0.5 text-amber-300 hover:bg-amber-500/20">+ add</button>
                     </li>
                   ))}
                 </ul>
@@ -342,9 +342,9 @@ export default function GstWizard() {
           </div>
 
           <div className="flex items-center gap-3">
-            <button onClick={() => setStep(1)} className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">← Back</button>
+            <button onClick={() => setStep(1)} className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-white/10">← Back</button>
             <button onClick={runGstr3b} disabled={busy}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">
+              className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 hover:bg-indigo-400 disabled:opacity-50">
               {busy ? "Computing…" : "Compute GSTR-3B →"}
             </button>
           </div>
@@ -354,27 +354,27 @@ export default function GstWizard() {
       {/* STEP 3 — REVIEW & FILE */}
       {step === 3 && g3 && (
         <section className="space-y-6">
-          <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
-            <p className="text-sm text-indigo-700">Total cash challan payable</p>
-            <p className="text-3xl font-bold tracking-tight text-indigo-900">₹{inr(g3.cashChallan.total.grandTotal)}</p>
-            <p className="mt-1 text-xs text-indigo-700">
+          <div className="rounded-xl border border-indigo-400/25 bg-indigo-500/10 p-5 shadow-[0_0_60px_-20px_rgba(99,102,241,0.6)]">
+            <p className="text-sm text-indigo-300">Total cash challan payable</p>
+            <p className="text-3xl font-bold tracking-tight text-white">₹{inr(g3.cashChallan.total.grandTotal)}</p>
+            <p className="mt-1 text-xs text-indigo-300">
               RCM (cash) ₹{inr(g3.cashChallan.rcm.total)} · Regular after ITC ₹{inr(g3.cashChallan.regular.total)}
             </p>
           </div>
 
           {g3.reconciliation && (
-            <div className="rounded-xl border border-zinc-200 bg-white p-4">
+            <div className="rounded-xl border border-white/10 bg-white/[0.025] p-4">
               <div className="mb-2 flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-zinc-700">Review — reconciliation checks</h3>
+                <h3 className="text-sm font-semibold text-zinc-200">Review — reconciliation checks</h3>
                 {g3.reconciliation.gstr1Vs3b.ok && g3.reconciliation.internal.ok
-                  ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">✓ all passed — safe to file</span>
-                  : <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">⚠ review needed</span>}
+                  ? <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-300">✓ all passed — safe to file</span>
+                  : <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-300">⚠ review needed</span>}
               </div>
               <ul className="space-y-1 text-xs">
                 {[...g3.reconciliation.gstr1Vs3b.checks, ...g3.reconciliation.internal.checks].map((c, i) => (
                   <li key={i} className="flex items-center justify-between gap-3">
-                    <span className="text-zinc-600"><span className={c.ok ? "text-emerald-600" : "text-red-600"}>{c.ok ? "✓" : "✗"}</span> {c.label}</span>
-                    <span className={`tabular-nums ${c.ok ? "text-zinc-400" : "font-semibold text-red-600"}`}>Δ {inr(c.diff)}</span>
+                    <span className="text-zinc-300"><span className={c.ok ? "text-emerald-400" : "text-red-400"}>{c.ok ? "✓" : "✗"}</span> {c.label}</span>
+                    <span className={`tabular-nums ${c.ok ? "text-zinc-500" : "font-semibold text-red-400"}`}>Δ {inr(c.diff)}</span>
                   </li>
                 ))}
               </ul>

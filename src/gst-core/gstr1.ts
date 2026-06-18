@@ -21,13 +21,11 @@ export interface AppDefault {
 export const APP_DEFAULTS: Record<string, AppDefault> = {
   "Hima":              { type: "invoicewise", hsn: 998439, service: "Audio & Video call - Other on-line contents nowhere else classified" },
   "Sudar":             { type: "razorpay",    hsn: 999299, service: "Other Educational support services - Application helping in Exams Preparation" },
-  "Thedal":            { type: "razorpay",    hsn: 998433, service: "On-line video content - Providing guidances related to business through videos" },
-  "Bangalore Connect": { type: "phonepe",     hsn: 998599, service: "Other support services nowhere else classified - Application connecting Professionals around Bangalore" },
   "Only Care":         { type: "cashfree",    hsn: 998439, service: "Online care - Other on-line contents nowhere else classified" },
   "Unman":             { type: "invoicewise", hsn: 998439, service: "AI Chat based Text media - Other on-line contents nowhere else classified" },
 };
 
-export const APP_ORDER = ["Hima", "Sudar", "Thedal", "Bangalore Connect", "Only Care", "Unman"] as const;
+export const APP_ORDER = ["Hima", "Sudar", "Only Care", "Unman"] as const;
 
 export type Cell = string | number | boolean | null | undefined;
 export type Row = Cell[];
