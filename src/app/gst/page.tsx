@@ -133,8 +133,27 @@ export default function GstWizard() {
     URL.revokeObjectURL(url);
   }
 
-  async function uploadGstr2b(file: File) {
+  async function downloadFullWorkbook() {
     setBusy(true); setError(null);
+    try {
+      const fd = new FormData();
+      fd.set("period", period);
+      fd.set("input", JSON.stringify(inputBody()));
+      if (gstr2bFile) fd.set("gstr2b", gstr2bFile);
+      if (bankFile) fd.set("bank", bankFile);
+      const res = await fetch("/api/gstr/workbook", { method: "POST", body: fd });
+      if (!res.ok) throw new Error(`Workbook build failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `Innovfix GST Working ${period}.xlsx`; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function uploadGstr2b(file: File) {
+    setBusy(true); setError(null); setGstr2bFile(file);
     try {
       const fd = new FormData(); fd.set("file", file);
       const res = await fetch("/api/gstr2b/parse", { method: "POST", body: fd });
@@ -147,7 +166,7 @@ export default function GstWizard() {
   }
 
   async function uploadBankRcm(file: File) {
-    setBusy(true); setError(null); setRcmReview([]); setRcmNote("");
+    setBusy(true); setError(null); setRcmReview([]); setRcmNote(""); setBankFile(file);
     try {
       const fd = new FormData(); fd.set("file", file);
       const res = await fetch("/api/rcm/parse", { method: "POST", body: fd });
@@ -403,6 +422,9 @@ export default function GstWizard() {
             <div className="flex flex-wrap items-center gap-3">
               <button onClick={downloadReport} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
                 ⬇ Download final GSTR-3B report
+              </button>
+              <button onClick={downloadFullWorkbook} disabled={busy} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">
+                {busy ? "Building…" : "⬇ Download full GST working (all sheets)"}
               </button>
               <a href="https://www.gst.gov.in" target="_blank" rel="noreferrer"
                 className="rounded-lg border border-indigo-300 bg-white px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50">
