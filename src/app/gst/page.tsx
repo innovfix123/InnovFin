@@ -59,6 +59,8 @@ export default function GstWizard() {
   const [rcmReview, setRcmReview] = useState<{ vendor: string; amount: number; category: string; reason: string }[]>([]);
   const [rcmNote, setRcmNote] = useState<string>("");
   const [itcInfo, setItcInfo] = useState<string>("");
+  const [gstr2bFile, setGstr2bFile] = useState<File | null>(null);
+  const [bankFile, setBankFile] = useState<File | null>(null);
 
   const [g3, setG3] = useState<Gstr3bResult | null>(null);
   const [busy, setBusy] = useState(false);
