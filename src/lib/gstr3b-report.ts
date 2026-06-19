@@ -117,5 +117,5 @@ export function buildGstr3bWorkbook(g3: Gstr3bResult): Buffer {
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "GSTR-3B Summary");
-  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  return XLSX.write(wb, { type: "buffer", bookType: "xlsx", compression: true }) as Buffer;
 }

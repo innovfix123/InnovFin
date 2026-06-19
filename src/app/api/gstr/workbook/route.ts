@@ -11,6 +11,15 @@ import { buildFullWorkbook } from "@/lib/workbook-full";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+/** Pick the raw portal "B2B" sheet (e.g. "GSTR - 2B - B2B") to pass through verbatim. */
+function pickB2bSheet(sheets: Record<string, import("@/gst-core/gstr1").AOA>): import("@/gst-core/gstr1").AOA | null {
+  const names = Object.keys(sheets);
+  const exact = names.find((n) => n.trim().toLowerCase() === "gstr - 2b - b2b");
+  if (exact) return sheets[exact];
+  const cand = names.find((n) => /b2b/i.test(n) && !/(backup|reject|cdnr|dnr|reversal|isd|eco|b2ba)/i.test(n));
+  return cand ? sheets[cand] : null;
+}
+
 /**
  * Build the full multi-sheet "GST Working" workbook (Shoyab's format): re-fetches every
  * app's raw transactions for the per-app detail tabs, recomputes GSTR-1 + GSTR-3B, and
@@ -42,11 +51,28 @@ export async function POST(req: Request) {
   }
   const { total } = summarise(lines);
 
+  // GSTR-1-only scope: GSTR-1 Summary + per-app sales sheets (no 3B/RCM/2B).
+  if (String(form.get("scope") || "full") === "gstr1") {
+    const buf = buildFullWorkbook({ period, lines, total, perApp, scope: "gstr1" });
+    const safe = period.replace(/[^0-9A-Za-z_-]/g, "");
+    return new NextResponse(new Uint8Array(buf), {
+      headers: {
+        "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "content-disposition": `attachment; filename="Innovfix GSTR-1 Working ${safe}.xlsx"`,
+      },
+    });
+  }
+
   // 2) Optional GSTR-2B (for the B2B detail sheet + ITC).
   let twoB: Gstr2bResult | null = null;
+  let twoBRaw: import("@/gst-core/gstr1").AOA | null = null;
   const f2b = form.get("gstr2b");
   if (f2b instanceof File && f2b.size > 0) {
-    try { twoB = parseGstr2b(bufferToSheets(Buffer.from(await f2b.arrayBuffer()))); } catch { twoB = null; }
+    try {
+      const sheets = bufferToSheets(Buffer.from(await f2b.arrayBuffer()));
+      twoB = parseGstr2b(sheets);
+      twoBRaw = pickB2bSheet(sheets);
+    } catch { twoB = null; }
   }
 
   // 3) Optional bank workbook → RCM detail (pivot path).
@@ -80,7 +106,7 @@ export async function POST(req: Request) {
     interest: input.interest,
   });
 
-  const buf = buildFullWorkbook({ period, lines, total, gstr3b: g3, perApp, rcm, twoB });
+  const buf = buildFullWorkbook({ period, lines, total, gstr3b: g3, perApp, rcm, twoB, twoBRaw });
   const safe = period.replace(/[^0-9A-Za-z_-]/g, "");
   return new NextResponse(new Uint8Array(buf), {
     headers: {

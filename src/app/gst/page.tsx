@@ -122,15 +122,18 @@ export default function GstWizard() {
 
   async function downloadGstr1() {
     if (!sales) return;
-    const res = await fetch("/api/gstr1/report", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ period, lines: sales.lines, total: sales.total }),
-    });
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `Innovfix GSTR-1 ${period}.xlsx`; a.click();
-    URL.revokeObjectURL(url);
+    setBusy(true); setError(null);
+    try {
+      const fd = new FormData(); fd.set("period", period); fd.set("scope", "gstr1");
+      const res = await fetch("/api/gstr/workbook", { method: "POST", body: fd });
+      if (!res.ok) throw new Error(`GSTR-1 working build failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `Innovfix GSTR-1 Working ${period}.xlsx`; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
   }
 
   async function downloadFullWorkbook() {
@@ -285,9 +288,9 @@ export default function GstWizard() {
               {busy ? "Fetching…" : "Fetch & compute GSTR-1"}
             </button>
             {sales && sales.lines.length > 0 && (
-              <button onClick={downloadGstr1}
-                className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 hover:bg-emerald-400">
-                ⬇ Download GSTR-1 report
+              <button onClick={downloadGstr1} disabled={busy}
+                className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 hover:bg-emerald-400 disabled:opacity-50">
+                {busy ? "Building…" : "⬇ Download GSTR-1 working (all sheets)"}
               </button>
             )}
             <button onClick={() => setStep(2)} disabled={!sales || sales.lines.length === 0}
@@ -412,28 +415,28 @@ export default function GstWizard() {
               ["TOTAL CHALLAN", inr(g3.cashChallan.total.igst), inr(g3.cashChallan.total.cgst), inr(g3.cashChallan.total.sgst), inr(g3.cashChallan.total.grandTotal)],
             ]} />
 
-          <div className="rounded-xl border border-zinc-200 bg-white p-4">
-            <h3 className="mb-1 text-sm font-semibold text-zinc-700">File on the GST portal</h3>
-            <p className="mb-3 text-xs text-zinc-500">
+          <div className="rounded-xl border border-white/10 bg-white/[0.025] p-4">
+            <h3 className="mb-1 text-sm font-semibold text-zinc-200">File on the GST portal</h3>
+            <p className="mb-3 text-xs text-zinc-400">
               InnovFin prepares the figures; the return is submitted on the government portal. Download the working,
-              enter the <span className="font-medium">Table 6.1</span> amounts on the portal, and pay the challan of
-              <span className="font-medium"> ₹{inr(g3.cashChallan.total.grandTotal)}</span>.
+              enter the <span className="font-medium text-zinc-300">Table 6.1</span> amounts on the portal, and pay the challan of
+              <span className="font-medium text-zinc-300"> ₹{inr(g3.cashChallan.total.grandTotal)}</span>.
             </p>
             <div className="flex flex-wrap items-center gap-3">
-              <button onClick={downloadReport} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+              <button onClick={downloadReport} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 hover:bg-emerald-400">
                 ⬇ Download final GSTR-3B report
               </button>
-              <button onClick={downloadFullWorkbook} disabled={busy} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">
+              <button onClick={downloadFullWorkbook} disabled={busy} className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50">
                 {busy ? "Building…" : "⬇ Download full GST working (all sheets)"}
               </button>
               <a href="https://www.gst.gov.in" target="_blank" rel="noreferrer"
-                className="rounded-lg border border-indigo-300 bg-white px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50">
+                className="rounded-lg border border-indigo-400/30 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-300 hover:bg-indigo-500/20">
                 Open GST portal ↗
               </a>
             </div>
           </div>
 
-          <button onClick={() => setStep(2)} className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">← Back</button>
+          <button onClick={() => setStep(2)} className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-white/10">← Back</button>
         </section>
       )}
     </div>
@@ -445,10 +448,10 @@ function round2(n: number): number { return Math.round((n + Number.EPSILON) * 10
 function NumField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-medium text-zinc-600">{label}</span>
+      <span className="mb-1 block text-xs font-medium text-zinc-400">{label}</span>
       <input type="number" inputMode="decimal" value={Number.isFinite(value) ? value : 0}
         onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-        className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-right text-sm tabular-nums text-zinc-900" />
+        className="w-full rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-right text-sm tabular-nums text-zinc-100 focus:border-indigo-400/50 focus:outline-none focus:ring-1 focus:ring-indigo-400/30 [color-scheme:dark]" />
     </label>
   );
 }
@@ -456,16 +459,16 @@ function NumField({ label, value, onChange }: { label: string; value: number; on
 function MiniTable({ title, head, rows }: { title: string; head: string[]; rows: (string | number)[][] }) {
   return (
     <div>
-      <h3 className="mb-2 text-sm font-semibold text-zinc-700">{title}</h3>
-      <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white">
-        <table className="min-w-full divide-y divide-zinc-200 text-sm">
-          <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500">
+      <h3 className="mb-2 text-sm font-semibold text-zinc-200">{title}</h3>
+      <div className="overflow-x-auto rounded-xl border border-white/10 bg-white/[0.025]">
+        <table className="min-w-full divide-y divide-white/10 text-sm">
+          <thead className="bg-white/5 text-left text-xs uppercase tracking-wide text-zinc-400">
             <tr>{head.map((h, i) => <th key={i} className={`px-3 py-2 ${i === 0 ? "" : "text-right"}`}>{h}</th>)}</tr>
           </thead>
-          <tbody className="divide-y divide-zinc-100">
+          <tbody className="divide-y divide-white/5">
             {rows.map((r, ri) => (
-              <tr key={ri} className={String(r[0]).startsWith("TOTAL") ? "bg-zinc-50 font-semibold" : ""}>
-                {r.map((c, ci) => <td key={ci} className={`px-3 py-2 ${ci === 0 ? "font-medium text-zinc-800" : "text-right tabular-nums"}`}>{c}</td>)}
+              <tr key={ri} className={String(r[0]).startsWith("TOTAL") ? "bg-white/5 font-semibold text-white" : "text-zinc-300"}>
+                {r.map((c, ci) => <td key={ci} className={`px-3 py-2 ${ci === 0 ? "font-medium text-zinc-100" : "text-right tabular-nums"}`}>{c}</td>)}
               </tr>
             ))}
           </tbody>

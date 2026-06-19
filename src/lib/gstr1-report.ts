@@ -124,5 +124,5 @@ export function buildGstr1Workbook(period: string, lines: Gstr1Line[], total: Gs
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "GSTR-1 Summary");
-  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  return XLSX.write(wb, { type: "buffer", bookType: "xlsx", compression: true }) as Buffer;
 }

@@ -46,10 +46,10 @@ const DEFAULT_APPDB_QUERY: Record<string, string> = {
     "SELECT order_id AS `Invoice No`, dt AS `Invoice Date`, price AS `Invoice Value`," +
     " price/1.18 AS `Taxable Value`, price*0.09/1.18 AS `CGST`, price*0.09/1.18 AS `SGST`," +
     " gw AS `Gateway` FROM (" +
-    " SELECT p.order_id, p.datetime AS dt, c.price AS price, 'PhonePe' AS gw FROM phonepe_payments p JOIN coins c ON c.id=p.coin_id" +
+    " SELECT CONVERT(p.order_id USING utf8mb4) AS order_id, p.datetime AS dt, c.price AS price, CONVERT('PhonePe' USING utf8mb4) AS gw FROM phonepe_payments p JOIN coins c ON c.id=p.coin_id" +
     " WHERE p.checked=1 AND p.status=1 AND p.datetime>=:from AND p.datetime<=:to" +
     " UNION ALL" +
-    " SELECT p.order_id, p.datetime AS dt, c.price AS price, 'Cashfree' AS gw FROM cashfree_payments p JOIN coins c ON c.id=p.coin_id" +
+    " SELECT CONVERT(p.order_id USING utf8mb4) AS order_id, p.datetime AS dt, c.price AS price, CONVERT('Cashfree' USING utf8mb4) AS gw FROM cashfree_payments p JOIN coins c ON c.id=p.coin_id" +
     " WHERE p.status=1 AND p.datetime>=:from AND p.datetime<=:to" +
     ") x",
 };
