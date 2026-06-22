@@ -4,7 +4,9 @@
 
 **Entity:** Innovfix Private Limited · **GSTIN:** 29AAICI1603A1Z3 · **State:** Karnataka (29)
 **Returns:** monthly **GSTR‑1** (due 11th) and **GSTR‑3B** (due 20th)
-*Last updated: 2026‑06‑13*
+*Last updated: 2026‑06‑21*
+
+> For the **engineering** view (every module, route, data shape and how to extend it) see `docs/GST-IMPLEMENTATION.md`. This doc is the **process** view.
 
 ---
 
@@ -147,10 +149,11 @@ Each core module is **locked to a real filed month by tests**, so the numbers ca
 | GSTR‑3B tax math (3.1 / 4 / 6.1, Rule 88A) | ✅ auto |
 | RCM classification logic | ✅ auto (in the engine) |
 | Reconciliations | ✅ auto |
-| Final GSTR‑3B Excel | ✅ auto |
-| **GSTR‑2B → ITC totals** | ⏳ manual (download + type; auto‑parser planned) |
-| **RCM expense‑list ingest** | ⏳ manual (upload/feed planned) |
-| Reconciliations + review queue shown in the UI | ⏳ planned |
+| Final GSTR‑3B Excel + full multi‑sheet GST Working workbook | ✅ auto |
+| **GSTR‑2B → ITC totals** | ✅ auto‑parsed (upload the portal file; totals tie to 4(A)(5)) |
+| **RCM expense‑list ingest** | ✅ auto (upload the bank statement / RCM pivot; AI assists, human confirms) |
+| Reconciliations + review queue shown in the UI | ✅ surfaced in cockpit Step 3 |
+| Download the GSTR‑2B / bank file from the portals | ⏳ manual (still done by hand each month) |
 
 ---
 
@@ -173,13 +176,14 @@ Each core module is **locked to a real filed month by tests**, so the numbers ca
 
 ---
 
-## 10. Roadmap (to full "paste‑and‑file")
+## 10. Roadmap
 
-1. **GSTR‑2B parser** — auto‑fill the ITC totals (the last hand‑typed input).
-2. **RCM ingest** — upload the expense list / bank pivot straight into the classifier.
-3. **Surface reconciliations + RCM review queue** in cockpit Step 3.
-4. **Host off the laptop** — run the tool + tunnel on an always‑on server (or give the server direct DB access), so nothing depends on the Mac being awake.
+The core "paste‑and‑file" loop is **done** — GSTR‑1, GSTR‑2B parsing, RCM ingest, GSTR‑3B, reconciliations and the full workbook all run end‑to‑end and reproduce filed months to ~95% (the rest is bounded; see `docs/GST-IMPLEMENTATION.md` §8). Per the team's direction the module changes only on a finance‑team request. Remaining nice‑to‑haves:
+
+1. **Host off the laptop** — run the tool + Hima tunnel on an always‑on server (or give the server direct DB access), so nothing depends on the Mac being awake.
+2. **Wire the two dropped apps** — Thedal (HSN 998433) and Bangalore Connect (HSN 998599), if/when they re‑enter scope.
+3. **Persistence** — a small store of each month's filed figures (the reserved `DATABASE_URL` slot) for history, audit and month‑over‑month checks.
 
 ---
 
-*See also `_private/Innovfix - GST Workings - Master Reference (GSTR‑1 & GSTR‑3B).md` for the underlying finance methodology and legal references.*
+*See also `docs/GST-IMPLEMENTATION.md` (engineering reference) and `_private/Innovfix - GST Workings - Master Reference (GSTR‑1 & GSTR‑3B).md` (finance methodology and legal references).*

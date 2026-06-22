@@ -18,6 +18,7 @@ next-env.d.ts
 # Confidential finance data — NEVER commit (lives here)
 /_private/
 /data/
+/.data/
 /uploads/
 # Defense-in-depth: never commit raw financial workbooks anywhere
 *.xlsx
