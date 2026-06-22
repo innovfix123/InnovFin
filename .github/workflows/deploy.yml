@@ -1,0 +1,31 @@
+name: Auto Deploy to Droplet
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-innovfin
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH into droplet and deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 139.59.20.41
+          username: root
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          command_timeout: 15m
+          script: |
+            set -e
+            cd /var/www/innovfin
+            git fetch origin main
+            git reset --hard origin/main
+            npm ci --silent
+            npm run build
+            pm2 restart innovfin --update-env
+            echo "Deployed at $(date)"
