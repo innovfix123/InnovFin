@@ -9,11 +9,14 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "mcp:onlycare": "tsx src/mcp/onlycare-tds/server.ts",
+    "mcp:onlycare:check": "tsx src/mcp/onlycare-tds/check-anchor.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@prisma/client": "^7.8.0",
     "mysql2": "^3.22.5",
     "next": "16.2.9",
@@ -32,6 +35,7 @@
     "eslint-config-next": "16.2.9",
     "prisma": "^7.8.0",
     "tailwindcss": "^4",
+    "tsx": "^4.22.4",
     "typescript": "^5",
     "vitest": "^4.1.8"
   }

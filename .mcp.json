@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "onlycare-tds": {
+      "command": "/var/www/innovfin/node_modules/.bin/tsx",
+      "args": ["/var/www/innovfin/src/mcp/onlycare-tds/server.ts"]
+    }
+  }
+}

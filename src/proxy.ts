@@ -9,6 +9,13 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/auth";
  */
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // MCP endpoints authenticate themselves with per-user bearer tokens (see
+  // src/app/mcp/**/route.ts). They must bypass the cookie login gate — a redirect
+  // to /login would break mcp-remote clients — while still being fully authed by
+  // the route's own token check. Everything else stays gated.
+  if (pathname.startsWith("/mcp/")) return NextResponse.next();
+
   const email = verifyToken(request.cookies.get(SESSION_COOKIE)?.value);
 
   // `/login` is the only public page; bounce already-signed-in users to the dashboard.
