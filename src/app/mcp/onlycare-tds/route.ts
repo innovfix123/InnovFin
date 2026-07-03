@@ -2,14 +2,20 @@
  * Networked Only Care TDS MCP endpoint — https://gst.innovfix.ai/mcp/onlycare-tds
  *
  * Served by the innovfin Next.js app (pm2 :3000, behind nginx TLS for gst.innovfix.ai).
- * Per-user bearer auth (see http-auth.ts), stateless Streamable HTTP transport, and an
- * access log on every call (see audit.ts) — this endpoint serves creator PANs.
+ * Dual auth (see http-auth.ts + oauth/): a static per-user bearer token (mcp-remote), OR an
+ * OAuth access token from the native Claude connector. Stateless Streamable HTTP transport, and
+ * an access log on every call (see audit.ts) — this endpoint serves creator PANs.
  *
- * Claude Desktop connects via `npx mcp-remote <url> --header "Authorization: Bearer <token>"`.
+ * Connect either via `npx mcp-remote <url> --header "Authorization: Bearer <token>"`, or via the
+ * Claude Connectors UI (paste the URL → sign in). A 401 carries the RFC 9728 resource_metadata
+ * pointer so the connector can discover the OAuth server.
  */
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { buildOnlyCareServer } from "@/mcp/onlycare-tds/factory";
-import { authenticate, bearerFromRequest, hasConfiguredTokens, type Principal } from "@/mcp/onlycare-tds/http-auth";
+import { authenticate, bearerFromRequest, hasConfiguredTokens } from "@/mcp/onlycare-tds/http-auth";
+import { authenticateOAuth } from "@/mcp/onlycare-tds/oauth/grants";
+import { protectedResourceMetadataUrl } from "@/mcp/onlycare-tds/oauth/config";
+import { envVar } from "@/mcp/onlycare-tds/env";
 import { audit, safeArgs } from "@/mcp/onlycare-tds/audit";
 
 export const runtime = "nodejs";      // needs node crypto, fs (audit), mysql2 (app DB)
@@ -40,21 +46,32 @@ function jsonRpcError(status: number, code: number, message: string, extraHeader
   });
 }
 
+/** 401 whose WWW-Authenticate points the Claude connector at our OAuth server (RFC 9728 §5.1). */
+function unauthorized(reason: string): Response {
+  const header = `Bearer resource_metadata="${protectedResourceMetadataUrl()}", error="invalid_token", error_description="${reason}"`;
+  return jsonRpcError(401, -32001, "Unauthorized — sign in or supply a valid bearer token.", { "www-authenticate": header });
+}
+
+/** Accept either a static per-user token (mcp-remote) or an OAuth access token (native connector). */
+function resolvePrincipal(token: string | null): { user: string; tokenFp: string } | null {
+  return authenticate(token) ?? authenticateOAuth(token);
+}
+
 export async function POST(req: Request): Promise<Response> {
   const started = Date.now();
   const ip = clientIp(req);
 
-  // Fail closed + loud if the deploy has no user tokens configured.
-  if (!hasConfiguredTokens()) {
-    audit({ ts: new Date(started).toISOString(), event: "error", user: "anonymous", ip, status: 503, ms: Date.now() - started, reason: "no ONLYCARE_MCP_TOKEN_* configured" });
-    return jsonRpcError(503, -32000, "Endpoint not provisioned — no access tokens configured.");
+  // Fail closed + loud only if neither auth path is provisioned (no static tokens AND no OAuth key).
+  if (!hasConfiguredTokens() && !envVar("AUTH_SECRET")) {
+    audit({ ts: new Date(started).toISOString(), event: "error", user: "anonymous", ip, status: 503, ms: Date.now() - started, reason: "no ONLYCARE_MCP_TOKEN_* and no AUTH_SECRET configured" });
+    return jsonRpcError(503, -32000, "Endpoint not provisioned — no auth configured.");
   }
 
   const token = bearerFromRequest(req);
-  const principal: Principal | null = authenticate(token);
+  const principal = resolvePrincipal(token);
   if (!principal) {
-    audit({ ts: new Date(started).toISOString(), event: "auth_fail", user: "anonymous", ip, status: 401, ms: Date.now() - started, reason: token ? "unknown token" : "missing bearer token" });
-    return jsonRpcError(401, -32001, "Unauthorized — supply a valid bearer token.", { "www-authenticate": 'Bearer realm="onlycare-tds"' });
+    audit({ ts: new Date(started).toISOString(), event: "auth_fail", user: "anonymous", ip, status: 401, ms: Date.now() - started, reason: token ? "invalid or expired token" : "missing bearer token" });
+    return unauthorized(token ? "invalid or expired token" : "authentication required");
   }
 
   // Read the body once so we can (a) label the audit entry and (b) hand it to the transport.
@@ -91,9 +108,9 @@ export async function POST(req: Request): Promise<Response> {
 // token (don't leak liveness to the unauthenticated), then report method-not-allowed.
 async function methodNotAllowed(req: Request): Promise<Response> {
   const ip = clientIp(req);
-  const principal = authenticate(bearerFromRequest(req));
+  const principal = resolvePrincipal(bearerFromRequest(req));
   if (!principal) {
-    return jsonRpcError(401, -32001, "Unauthorized — supply a valid bearer token.", { "www-authenticate": 'Bearer realm="onlycare-tds"' });
+    return unauthorized("authentication required");
   }
   audit({ ts: new Date().toISOString(), event: "call", user: principal.user, tokenFp: principal.tokenFp, ip, method: req.method, status: 405, ms: 0 });
   return jsonRpcError(405, -32000, "Method not allowed — POST JSON-RPC to this endpoint.", { allow: "POST" });

@@ -29,8 +29,13 @@ export default function LoginPage() {
       }
       // Honour a ?next= path if it's a safe in-app path, else go to the dashboard.
       const next = new URLSearchParams(window.location.search).get("next");
-      const dest = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
-      router.push(dest);
+      if (next && next.startsWith("/") && !next.startsWith("//")) {
+        // Hard navigation: `next` may be a route handler (e.g. the OAuth /authorize endpoint),
+        // which a client-side router.push can't drive — the browser must actually GET it.
+        window.location.assign(next);
+        return;
+      }
+      router.push("/");
       router.refresh();
     } catch {
       setError("Network error. Please try again.");
