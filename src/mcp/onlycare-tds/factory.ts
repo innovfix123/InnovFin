@@ -9,6 +9,7 @@ import { z } from "zod";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fetchOnlyCarePayouts } from "./payouts";
+import { fetchOnlyCareKyc, summariseKyc } from "./kyc";
 import { computeOnlyCareTds } from "./compute";
 import { tracesUploadProvider, type TracesRecord } from "./pan-provider";
 import { buildSec194CNonCompany } from "./workbook";
@@ -26,12 +27,46 @@ export function buildOnlyCareServer(): McpServer {
 
   server.registerTool("list_onlycare_payouts", {
     title: "List Only Care payouts",
-    description: "Only Care creator payouts for a month (pre-TDS), read-only from the app DB. Input: period=YYYY-MM.",
-    inputSchema: { period: PERIOD },
-  }, async ({ period }) => {
+    description: "Only Care creator payouts for a month (pre-TDS), read-only from the app DB. Input: period=YYYY-MM. Set withVerification=true to annotate each row with app-side KYC/bank verification and a verificationSummary (reference/QA only — never affects TDS).",
+    inputSchema: { period: PERIOD, withVerification: z.boolean().optional() },
+  }, async ({ period, withVerification }) => {
     const rows = await fetchOnlyCarePayouts(period);
     const grossTotal = round2(rows.reduce((s, r) => s + r.grossAmount, 0));
-    return { content: [{ type: "text", text: JSON.stringify({ source: "App-DB (Onlycare)", count: rows.length, grossTotal, rows }, null, 2) }] };
+    if (!withVerification) {
+      return { content: [{ type: "text", text: JSON.stringify({ source: "App-DB (Onlycare)", count: rows.length, grossTotal, rows }, null, 2) }] };
+    }
+    const kyc = await fetchOnlyCareKyc({ userIds: [...new Set(rows.map((r) => r.creatorId))] });
+    const byUser = new Map(kyc.map((k) => [k.creatorId, k]));
+    const enriched = rows.map((r) => {
+      const k = byUser.get(r.creatorId);
+      return {
+        ...r,
+        verification: k
+          ? { bankVerified: k.bankVerified, kycPanApproved: k.kycPanApproved, paysprintChecks: k.paysprintChecks, panSharedByUsers: k.panSharedByUsers, fullyVerified: k.fullyVerified, flags: k.flags }
+          : null,
+      };
+    });
+    const verificationSummary = {
+      ...summariseKyc(kyc),
+      payoutsPaidToUnverifiedBank: enriched.filter((r) => r.verification && !r.verification.bankVerified).length,
+      payoutsWithoutApprovedPan: enriched.filter((r) => r.verification && !r.verification.kycPanApproved).length,
+      payoutsOnSharedPan: enriched.filter((r) => r.verification && r.verification.panSharedByUsers > 1).length,
+    };
+    return { content: [{ type: "text", text: JSON.stringify({ source: "App-DB (Onlycare)", count: rows.length, grossTotal, verificationSummary, rows: enriched }, null, 2) }] };
+  });
+
+  server.registerTool("onlycare_kyc_status", {
+    title: "Only Care creator KYC / verification status",
+    description: "App-side onboarding verification for Only Care creators — reference/QA only, does NOT affect the TDS rate (206AA operative/inoperative status comes from TRACES, never the app DB). Look up by userIds[] and/or pans[]; returns per-creator {pan, paysprintChecks, kycPanApproved, bankVerified, panSharedByUsers, fullyVerified, flags} plus a summary. Surfaces creators paid without a verified bank / approved PAN and PANs shared across creators.",
+    inputSchema: { userIds: z.array(z.string()).optional(), pans: z.array(z.string()).optional() },
+  }, async ({ userIds, pans }) => {
+    if (!userIds?.length && !pans?.length) {
+      return { content: [{ type: "text", text: JSON.stringify({ error: "Provide at least one of userIds[] or pans[]." }) }] };
+    }
+    const rows = await fetchOnlyCareKyc({ userIds, pans });
+    const found = new Set(rows.map((r) => r.creatorId));
+    const notFoundUserIds = (userIds ?? []).filter((id) => !found.has(id));
+    return { content: [{ type: "text", text: JSON.stringify({ source: "App-DB (Onlycare)", summary: summariseKyc(rows), notFoundUserIds, rows }, null, 2) }] };
   });
 
   server.registerTool("onlycare_pan_status", {
@@ -74,4 +109,4 @@ export function buildOnlyCareServer(): McpServer {
 }
 
 /** Tool names exposed by this server — used by the audit layer to validate/label calls. */
-export const ONLYCARE_TOOLS = ["list_onlycare_payouts", "onlycare_pan_status", "compute_onlycare_tds", "onlycare_summary"] as const;
+export const ONLYCARE_TOOLS = ["list_onlycare_payouts", "onlycare_pan_status", "onlycare_kyc_status", "compute_onlycare_tds", "onlycare_summary"] as const;

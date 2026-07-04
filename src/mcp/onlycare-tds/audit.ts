@@ -31,8 +31,8 @@ export interface AuditEntry {
 
 /**
  * Reduce raw tool arguments to a PII-free summary safe to persist.
- * Allowed: period (a month string), writeWorkbook (a flag). PAN-bearing arrays (pans,
- * tracesRecords) are reduced to counts. Anything unrecognised is dropped, not logged.
+ * Allowed: period (a month string), writeWorkbook / withVerification (flags). PAN- and id-bearing
+ * arrays (pans, tracesRecords, userIds) are reduced to counts. Anything unrecognised is dropped.
  */
 export function safeArgs(args: unknown): Record<string, unknown> | undefined {
   if (!args || typeof args !== "object") return undefined;
@@ -40,7 +40,9 @@ export function safeArgs(args: unknown): Record<string, unknown> | undefined {
   const out: Record<string, unknown> = {};
   if (typeof a.period === "string") out.period = a.period;
   if (typeof a.writeWorkbook === "boolean") out.writeWorkbook = a.writeWorkbook;
+  if (typeof a.withVerification === "boolean") out.withVerification = a.withVerification;
   if (Array.isArray(a.pans)) out.panCount = a.pans.length;
+  if (Array.isArray(a.userIds)) out.userIdCount = a.userIds.length;
   if (Array.isArray(a.tracesRecords)) out.tracesRecordCount = a.tracesRecords.length;
   return Object.keys(out).length ? out : undefined;
 }

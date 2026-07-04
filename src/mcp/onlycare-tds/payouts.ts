@@ -3,8 +3,7 @@
  * through the durable SSH tunnel (local 3308 → analyst@43.204.113.99:3306) using the `analytics_ro`
  * SELECT-only login. Query locked against the live schema + the filed May anchor (1,190 payouts).
  */
-import { createConnection } from "mysql2/promise";
-import { envVar } from "./env";
+import { getOnlyCareConnection } from "./db";
 import { monthBounds } from "./util";
 
 export interface PayoutRow {
@@ -41,18 +40,8 @@ WHERE w.status = 'PAID' AND w.payout_status = 'SUCCESS'
 ORDER BY w.paid_at, w.payout_transfer_id`;
 
 export async function fetchOnlyCarePayouts(period: string): Promise<PayoutRow[]> {
-  const url = envVar("APPDB_ONLY_CARE_TDS_URL");
-  if (!url) throw new Error("APPDB_ONLY_CARE_TDS_URL is not set (see .env)");
   const { from, to } = monthBounds(period);
-  const u = new URL(url);
-  const conn = await createConnection({
-    host: u.hostname,
-    port: u.port ? Number(u.port) : 3306,
-    user: decodeURIComponent(u.username),
-    password: decodeURIComponent(u.password),
-    database: decodeURIComponent(u.pathname.replace(/^\//, "")),
-    namedPlaceholders: true,
-  });
+  const conn = await getOnlyCareConnection({ namedPlaceholders: true });
   try {
     const [rows] = await conn.query(QUERY, { from, to });
     return (rows as Record<string, unknown>[]).map((r) => ({
