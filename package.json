@@ -12,6 +12,10 @@
     "mcp:onlycare": "tsx src/mcp/onlycare-tds/server.ts",
     "mcp:onlycare:check": "tsx src/mcp/onlycare-tds/check-anchor.ts",
     "mcp:onlycare:kyc": "tsx src/mcp/onlycare-tds/check-kyc.ts",
+    "mcp:hima": "tsx src/mcp/hima-tds/server.ts",
+    "mcp:hima:check": "tsx src/mcp/hima-tds/check-anchor.ts",
+    "mcp:hima:smoke": "tsx src/mcp/hima-tds/smoke.ts",
+    "mcp:hima:kyc": "tsx src/mcp/hima-tds/check-kyc.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio"

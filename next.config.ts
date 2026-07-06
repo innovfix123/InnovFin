@@ -7,10 +7,19 @@ const nextConfig: NextConfig = {
   // openid-configuration — so all variants map to the same handlers.
   async rewrites() {
     return [
+      // Only Care AS uses the ROOT issuer, so it claims the bare well-known AS-metadata paths.
       { source: "/.well-known/oauth-authorization-server", destination: "/mcp/onlycare-tds/oauth/authorization-server-metadata" },
       { source: "/.well-known/openid-configuration", destination: "/mcp/onlycare-tds/oauth/authorization-server-metadata" },
       { source: "/.well-known/oauth-protected-resource/mcp/onlycare-tds", destination: "/mcp/onlycare-tds/oauth/protected-resource-metadata" },
       { source: "/.well-known/oauth-protected-resource", destination: "/mcp/onlycare-tds/oauth/protected-resource-metadata" },
+      // Hima AS uses a PATH-BASED issuer (https://host/mcp/hima-tds), so its metadata lives under
+      // path-inserted well-known locations — no collision with Only Care's root ones. AS metadata is
+      // served at BOTH the RFC 8414 path-insertion location and the path-suffix location, so any
+      // spec-compliant client finds it.
+      { source: "/.well-known/oauth-protected-resource/mcp/hima-tds", destination: "/mcp/hima-tds/oauth/protected-resource-metadata" },
+      { source: "/.well-known/oauth-authorization-server/mcp/hima-tds", destination: "/mcp/hima-tds/oauth/authorization-server-metadata" },
+      { source: "/.well-known/openid-configuration/mcp/hima-tds", destination: "/mcp/hima-tds/oauth/authorization-server-metadata" },
+      { source: "/mcp/hima-tds/.well-known/oauth-authorization-server", destination: "/mcp/hima-tds/oauth/authorization-server-metadata" },
     ];
   },
 };
