@@ -16,6 +16,9 @@
     "mcp:hima:check": "tsx src/mcp/hima-tds/check-anchor.ts",
     "mcp:hima:smoke": "tsx src/mcp/hima-tds/smoke.ts",
     "mcp:hima:kyc": "tsx src/mcp/hima-tds/check-kyc.ts",
+    "mcp:gateway": "tsx src/mcp/gateway-settlements/server.ts",
+    "mcp:gateway:check": "tsx src/mcp/gateway-settlements/check-anchor.ts",
+    "mcp:gateway:smoke": "tsx src/mcp/gateway-settlements/smoke.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio"

@@ -34,9 +34,10 @@ prisma/*.db-journal
 *.log
 npm-debug.log*
 yarn-debug.log*
-# MCP endpoint access/audit logs (records of who queried creator PANs — never commit)
+# MCP endpoint access/audit logs (records of who queried creator PANs / gateway fees — never commit)
 /OnlyCare-TDS-mcp/logs/
 /Hima-TDS-mcp/logs/
+/Gateway-Settlements-mcp/logs/
 
 # OS / editor
 .DS_Store

@@ -7,6 +7,10 @@
     "hima-tds": {
       "command": "/var/www/innovfin/node_modules/.bin/tsx",
       "args": ["/var/www/innovfin/src/mcp/hima-tds/server.ts"]
+    },
+    "gateway-settlements": {
+      "command": "/var/www/innovfin/node_modules/.bin/tsx",
+      "args": ["/var/www/innovfin/src/mcp/gateway-settlements/server.ts"]
     }
   }
 }

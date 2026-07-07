@@ -20,6 +20,13 @@ const nextConfig: NextConfig = {
       { source: "/.well-known/oauth-authorization-server/mcp/hima-tds", destination: "/mcp/hima-tds/oauth/authorization-server-metadata" },
       { source: "/.well-known/openid-configuration/mcp/hima-tds", destination: "/mcp/hima-tds/oauth/authorization-server-metadata" },
       { source: "/mcp/hima-tds/.well-known/oauth-authorization-server", destination: "/mcp/hima-tds/oauth/authorization-server-metadata" },
+      // Gateway Settlements AS uses a PATH-BASED issuer (https://host/mcp/gateway-settlements) too, so
+      // its metadata lives under path-inserted well-known locations — no collision with Only Care's
+      // root ones or Hima's. Served at BOTH the RFC 8414 path-insertion and the path-suffix location.
+      { source: "/.well-known/oauth-protected-resource/mcp/gateway-settlements", destination: "/mcp/gateway-settlements/oauth/protected-resource-metadata" },
+      { source: "/.well-known/oauth-authorization-server/mcp/gateway-settlements", destination: "/mcp/gateway-settlements/oauth/authorization-server-metadata" },
+      { source: "/.well-known/openid-configuration/mcp/gateway-settlements", destination: "/mcp/gateway-settlements/oauth/authorization-server-metadata" },
+      { source: "/mcp/gateway-settlements/.well-known/oauth-authorization-server", destination: "/mcp/gateway-settlements/oauth/authorization-server-metadata" },
     ];
   },
 };

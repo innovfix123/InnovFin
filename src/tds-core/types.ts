@@ -21,3 +21,10 @@ export type DeducteeClass = "COMPANY" | "NON_COMPANY";
  * the deductee's *name* must never affect any number.
  */
 export type PanStatus = "OPERATIVE" | "INOPERATIVE" | "UNKNOWN";
+
+/**
+ * Income-tax regime the employee has opted into (Section 192 / 392 salary TDS).
+ * NEW is the default under the IT Act 2025; OLD stays selectable for employees who opt out.
+ * Carried per-employee on the salary register — see salary.ts.
+ */
+export type TaxRegime = "NEW" | "OLD";
