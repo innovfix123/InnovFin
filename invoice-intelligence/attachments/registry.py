@@ -63,6 +63,12 @@ class AttachmentRegistry:
                     size=rec["size"],
                     is_encrypted=rec["is_encrypted"],
                     stored_path=rec["stored_path"],
+                    # Preserve email provenance across the save/load round-trip. Dropping these here
+                    # (a) fed empty sender/received_date to the pipeline in a separate process, and
+                    # (b) let the next collect's save() overwrite them with '' — losing them for good.
+                    # .get(...) keeps pre-existing indexes (written before these fields) loadable.
+                    source_sender=rec.get("source_sender", ""),
+                    source_date=rec.get("source_date", ""),
                 )
             except (KeyError, TypeError, ValueError):
                 # Skip malformed / legacy-format entries instead of crashing.
