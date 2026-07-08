@@ -35,5 +35,8 @@ def build_mail_reader(settings: dict[str, Any]) -> MailReader:
             limit=mr.get("limit"), mark_seen=bool(mr.get("mark_seen", False)),
             mark_mode=str(mr.get("mark_mode", "seen")),
             processed_label=str(mr.get("processed_label", "Processed")),
+            # One-time full backfill: set INVOICE_INCLUDE_PROCESSED=1 (or include_processed in config)
+            # to read the whole mailbox ignoring the Processed label + limit. Dedup keeps re-runs safe.
+            include_processed=bool(mr.get("include_processed") or os.environ.get("INVOICE_INCLUDE_PROCESSED")),
         )
     raise ValueError(f"unknown mail_reader type {kind!r} (available: sample, imap)")

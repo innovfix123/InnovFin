@@ -21,7 +21,7 @@ mail_reader:
   use_ssl: true
   username: invoices@innovfix.in     # central mailbox (note the plural 's')
   password_env: INVOICE_IMAP_PASSWORD  # 16-char Google App Password lives in this env var
-  mailbox: INBOX                     # rule delivers the copy to the inbox
+  mailbox: "[Gmail]/All Mail"        # innovfin: read ALL mail (no-miss — catches invoices archived / skipped-inbox). Was INBOX.
   search: UNSEEN                     # (only used in mark_mode: seen)
   mark_seen: true                    # mark processed so the next run skips it (idempotent)
   limit: 25                          # FIRST-RUN SAFETY: process 25 most-recent only.

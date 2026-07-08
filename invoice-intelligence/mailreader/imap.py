@@ -47,6 +47,7 @@ class ImapMailReader:
         mark_seen: bool = False,
         mark_mode: str = "seen",
         processed_label: str = "Processed",
+        include_processed: bool = False,
         connection_factory: Callable[[], object] | None = None,
     ) -> None:
         self.host = host
@@ -60,6 +61,9 @@ class ImapMailReader:
         self.mark_seen = bool(mark_seen)
         self.mark_mode = str(mark_mode or "seen").lower()
         self.processed_label = processed_label or "Processed"
+        # Backfill/full-resync: when True, read the mailbox regardless of the Processed label AND
+        # ignore the fetch limit (still marks Processed after capture). Off = normal incremental read.
+        self.include_processed = bool(include_processed)
         self._connection_factory = connection_factory
 
     # -- connection ---------------------------------------------------------
@@ -87,6 +91,8 @@ class ImapMailReader:
     def _search_criteria(self) -> tuple:
         """What to fetch. In label mode, only messages that do NOT yet carry the processed
         label (Gmail server-side search); otherwise the configured IMAP criterion."""
+        if self.include_processed:
+            return ("ALL",)                  # backfill: every message, regardless of label OR \Seen
         if self.mark_mode == "label":
             return ("X-GM-RAW", f'-label:{_gm_quote(self.processed_label)}')
         return (self.search,)
@@ -95,13 +101,16 @@ class ImapMailReader:
     def read(self) -> Iterator[RawEmail]:
         conn = self._connect()
         try:
-            conn.select(self.mailbox)
+            sel_typ, sel_data = conn.select(_qbox(self.mailbox))
+            mailbox_total = _int_or(sel_data[0] if sel_data else None, -1) if sel_typ == "OK" else -1
             typ, data = conn.uid("SEARCH", *self._search_criteria())
-            if typ != "OK" or not data or data[0] in (None, b"", ""):
-                return
-            uids = data[0].split()
-            if self.limit:
-                uids = uids[-int(self.limit):]          # most-recent N
+            matched = data[0].split() if (typ == "OK" and data and data[0] not in (None, b"", "")) else []
+            # Normal runs cap to the most-recent N; a backfill (include_processed) takes everything.
+            uids = matched[-int(self.limit):] if (self.limit and not self.include_processed) else matched
+            # Diagnostic (stderr → pm2/cron log): tells "read 0 messages" (empty/auth) apart from
+            # "read N, none were invoices". messages_in_mailbox = ALL mail in the box (incl. already
+            # Processed); matched_by_search = what this run is eligible to fetch, before the limit cap.
+            _log_read(self.username, self.mailbox, self.mark_mode, mailbox_total, len(matched), len(uids))
             for uid in uids:
                 typ, msg_data = conn.uid("FETCH", uid, "(RFC822)")
                 if typ != "OK" or not msg_data or not msg_data[0]:
@@ -137,7 +146,7 @@ class ImapMailReader:
         conn = self._connect()
         marked = 0
         try:
-            conn.select(self.mailbox)
+            conn.select(_qbox(self.mailbox))
             for uid in uids:
                 typ, _ = conn.uid("STORE", uid, command, value)
                 if typ == "OK":
@@ -172,7 +181,7 @@ class ImapMailReader:
         conn = self._connect()
         labelled = 0
         try:
-            conn.select(self.mailbox)
+            conn.select(_qbox(self.mailbox))
             for uid, label in pairs:
                 typ, _ = conn.uid("STORE", uid, "+X-GM-LABELS", _gm_quote(label))
                 if typ == "OK":
@@ -186,3 +195,28 @@ def _gm_quote(label: str) -> str:
     """Quote a Gmail label/query token so multi-word labels (e.g. ``Not-Invoice``) are safe."""
     label = str(label)
     return f'"{label}"' if (" " in label or ":" in label) else label
+
+
+def _qbox(mailbox: str) -> str:
+    """Quote an IMAP mailbox name containing spaces (e.g. ``[Gmail]/All Mail``) for SELECT."""
+    return f'"{mailbox}"' if " " in mailbox else mailbox
+
+
+def _int_or(value, default: int) -> int:
+    """Parse an IMAP numeric response (often bytes, e.g. b'12') to int, else the default."""
+    try:
+        return int(value.decode() if isinstance(value, (bytes, bytearray)) else value)
+    except (TypeError, ValueError, AttributeError):
+        return default
+
+
+def _log_read(account: str, mailbox: str, mark_mode: str,
+              mailbox_total: int, matched: int, fetching: int) -> None:
+    """One stderr line per read(): what the mailbox actually returned, before invoice filtering.
+    Lets ops distinguish an empty/wrong mailbox or silent auth-empty from 'read N, none matched'."""
+    import sys
+    print(
+        f"[imap.read] account={account} mailbox={mailbox!r} mark_mode={mark_mode} "
+        f"messages_in_mailbox={mailbox_total} matched_by_search={matched} fetching={fetching}",
+        file=sys.stderr, flush=True,
+    )
