@@ -144,6 +144,27 @@ def run_pipeline() -> dict:
     }
 
 
+@mcp.tool()
+def review_queue(limit: int = 200) -> list[dict]:
+    """The manual-review queue, enriched for a human reviewer: each needs_review invoice with its
+    extracted fields, WHY it was flagged (validation reasons), confidence, and source doc type."""
+    return tools.review_queue(_store, limit=limit)
+
+
+@mcp.tool()
+def get_attachment(doc_id: str) -> dict:
+    """The ORIGINAL document behind an extracted invoice: PDF/image bytes as base64
+    (`content_base64`), or `text` for email-body / XML / JSON e-invoices, plus filename + mime type.
+    Lets a reviewer compare what the pipeline read against the actual source document."""
+    from cli import _load_pipeline_provider
+
+    loaded = _load_pipeline_provider(CONFIG_DIR)
+    if loaded[0] is None:
+        return {"error": "document provider unavailable — check config/attachments.yaml"}
+    _cfgs, provider, _cfg = loaded
+    return tools.get_attachment(provider, doc_id)
+
+
 def _run_http_with_auth(transport: str, token: str) -> None:
     """Serve the HTTP/SSE app but reject any request without ``Authorization: Bearer <token>``.
 

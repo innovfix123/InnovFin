@@ -65,6 +65,64 @@ def invoice_stats(store) -> dict:
     return out
 
 
+def get_attachment(provider, doc_id: str, max_bytes: int = 15 * 1024 * 1024) -> dict:
+    """The ORIGINAL document behind an extracted invoice — bytes (base64) for PDF/image, or text for
+    email-body / XML / JSON e-invoices — plus filename + mime type, so a human reviewer can eyeball
+    the source next to the extracted fields. ``provider`` is a DocumentProvider that resolves a
+    doc_id to its stored bytes + metadata."""
+    import base64
+    try:
+        meta = provider.metadata(doc_id)
+        data = provider.open(doc_id)
+    except Exception as e:  # unknown doc_id / missing blob
+        return {"error": f"attachment not found for {doc_id!r}: {e}"}
+    atype = getattr(meta.attachment_type, "value", str(meta.attachment_type))
+    out = {
+        "doc_id": doc_id,
+        "filename": meta.filename,
+        "mime_type": meta.mime_type or "application/octet-stream",
+        "doc_type": atype,
+        "size": meta.size,
+    }
+    if meta.size and meta.size > max_bytes:
+        out["too_large"] = True
+        return out
+    if atype in ("email_body", "xml", "json"):
+        out["is_text"] = True
+        out["text"] = data.decode("utf-8", "replace")
+    else:
+        out["is_text"] = False
+        out["content_base64"] = base64.b64encode(data).decode("ascii")
+    return out
+
+
+def _review_item(rec: dict) -> dict:
+    """A summary enriched for the human reviewer: WHY it was flagged + confidence signals."""
+    s = summary(rec)
+    val = rec.get("validation") or {}
+    prov = rec.get("provenance") or {}
+    src = rec.get("source") or {}
+    low = [
+        f for f, p in prov.items()
+        if isinstance(p, dict) and isinstance(p.get("confidence"), (int, float)) and p["confidence"] < 0.6
+    ]
+    s.update({
+        "reasons": list(val.get("errors") or []),        # e.g. "mandatory field 'total' is missing"
+        "confidence": val.get("confidence"),
+        "low_confidence_fields": low,
+        "doc_type": src.get("document_type"),
+        "filename": src.get("filename"),
+    })
+    return s
+
+
+def review_queue(store, limit=200) -> list[dict]:
+    """The needs_review queue, enriched for a human: extracted fields + WHY each was flagged
+    (validation errors), overall confidence, low-confidence fields, and the source doc type/name.
+    One call gives the whole review view (vs. list_needs_review + get_invoice per item)."""
+    return [_review_item(r) for r in store.search(SearchQuery(status="needs_review", limit=limit))]
+
+
 # -- human review actions ---------------------------------------------------
 
 def _resolve(store, ident: str):
