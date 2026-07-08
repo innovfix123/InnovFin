@@ -13,6 +13,7 @@ import { z } from "zod";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fetchHimaPayouts } from "./payouts";
+import { fetchHimaPayoutCharges } from "./payout-charges";
 import { fetchHimaKyc, summariseHimaKyc, type HimaKycRow } from "./kyc";
 import { computeHimaTds } from "./compute";
 import { tracesUploadProvider, type TracesRecord } from "./pan-provider";
@@ -104,6 +105,16 @@ export function buildHimaServer(): McpServer {
       },
     };
     return { content: [{ type: "text", text: JSON.stringify(out, null, 2) }] };
+  });
+
+  server.registerTool("hima_payout_charges", {
+    title: "Hima payout charges (Cashfree fee → 194H)",
+    description:
+      "Monthly Cashfree PAYOUT-DISBURSAL charges for Hima, read-only from the app DB view (cf_service_charge). Returns Σ cashfree fee — the 194H commission BASE for disbursing payouts (SEPARATE from the payment-gateway MDR in the gateway-settlements MCP, and from the 194C on the payout amount) — plus the payout count and gross paid. Input: period=YYYY-MM. NOTE: cf_service_charge is populated ~Jul-2026 onward; feesPopulated=false (or a partial feePopulatedCount) means supply the month from the Cashfree payout invoice's \"Payouts Disbursed\" line (e.g. CF/26-27/35025 = ₹2,75,499.00 for May).",
+    inputSchema: { period: PERIOD },
+  }, async ({ period }) => {
+    const charges = await fetchHimaPayoutCharges(period);
+    return { content: [{ type: "text", text: JSON.stringify(charges, null, 2) }] };
   });
 
   server.registerTool("hima_kyc_status", {

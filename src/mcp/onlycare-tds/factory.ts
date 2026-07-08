@@ -9,6 +9,7 @@ import { z } from "zod";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fetchOnlyCarePayouts } from "./payouts";
+import { fetchOnlyCarePayoutCharges } from "./payout-charges";
 import { fetchOnlyCareKyc, summariseKyc } from "./kyc";
 import { computeOnlyCareTds } from "./compute";
 import { tracesUploadProvider, type TracesRecord } from "./pan-provider";
@@ -53,6 +54,16 @@ export function buildOnlyCareServer(): McpServer {
       payoutsOnSharedPan: enriched.filter((r) => r.verification && r.verification.panSharedByUsers > 1).length,
     };
     return { content: [{ type: "text", text: JSON.stringify({ source: "App-DB (Onlycare)", count: rows.length, grossTotal, verificationSummary, rows: enriched }, null, 2) }] };
+  });
+
+  server.registerTool("onlycare_payout_charges", {
+    title: "Only Care payout charges (Cashfree fee → 194H) + creator TDS",
+    description:
+      "Monthly Cashfree PAYOUT-DISBURSAL charges for Only Care, read-only from the app's internal payouts API. Returns Σ cashfree_fee — the 194H commission BASE for disbursing payouts (SEPARATE from the payment-gateway MDR in the gateway-settlements MCP, and from the 194C on the payout amount) — plus Σ tds_deducted (194C creator TDS the app already withheld), gross paid, net credited and the payout count. Input: period=YYYY-MM, detail=true for per-payout rows (incl. cashfree_transfer_id to cross-check the Cashfree tax invoice). NOTE: fees are populated ~Jul-2026 onward; feesPopulated=false means the month isn't backfilled — use the Cashfree payout invoice instead.",
+    inputSchema: { period: PERIOD, detail: z.boolean().optional() },
+  }, async ({ period, detail }) => {
+    const charges = await fetchOnlyCarePayoutCharges(period, { detail });
+    return { content: [{ type: "text", text: JSON.stringify(charges, null, 2) }] };
   });
 
   server.registerTool("onlycare_kyc_status", {
