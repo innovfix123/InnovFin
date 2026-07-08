@@ -1,0 +1,30 @@
+# ============================================================================
+# INVOICE VALIDATION  —  Part 2, Milestone 2.5  (deterministic, no AI)
+# ============================================================================
+# Deterministic checks over the canonical invoice fields. Anything that fails a
+# mandatory check or scores below `min_confidence` is routed to Manual Review.
+
+# Fields that MUST be present for an invoice to be considered complete.
+mandatory_fields:
+  - vendor_gstin
+  - invoice_number
+  - invoice_date
+  - total
+
+# Overall 0..1 score below which the invoice is flagged for manual review.
+min_confidence: 0.6
+
+# Rupee slack on the arithmetic reconciliation (taxable+cgst+sgst+igst+cess == total).
+amount_tolerance: 1.0
+
+# Set true to also require the buyer GSTIN (B2B). Default false (B2C invoices omit it).
+require_buyer_gstin: false
+
+# --- Invoice relevance gate (precision layer) -------------------------------
+# The Workspace routing rule is deliberately broad (recall-first) so no invoice is missed; that
+# also forwards marketing/newsletters/noise. A document that is READ CLEANLY yet scores below
+# this on hard invoice signals (GSTIN +3, IRN +3, tax amount +2, invoice number / total /
+# taxable / HSN +1 each) is labelled `not_invoice` instead of `needs_review`, keeping the review
+# queue clean. Unreadable documents are NEVER dropped here — they stay in the review path.
+# Raise to be stricter (more noise filtered, small miss risk); lower to be more permissive.
+relevance_min_score: 2.0

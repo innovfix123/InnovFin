@@ -1,0 +1,52 @@
+# Positive keyword intelligence. Subject keywords are deliberately CAPPED in weight
+# (see score_weights) so that "Email containing an invoice" (unrelated subject, signal
+# in the attachment) is not penalized for lacking the word "invoice".
+
+strong_subject:
+  - tax invoice
+  - gst invoice
+  - e-invoice
+  - proforma invoice
+  - invoice
+  - payment advice
+  - remittance advice
+  - credit note
+  - debit note
+  - purchase order
+  - statement of account
+
+medium_subject:
+  - bill
+  - receipt
+  - statement
+  - payment received
+  - payment confirmation
+
+body_financial:
+  - amount payable
+  - amount due
+  - total amount due
+  - balance due
+  - please find attached
+  - please find the attached invoice
+  - invoice number
+  - invoice no
+  - invoice date
+  - due date
+  - bill to
+  - ship to
+  - taxable value
+  - tax invoice
+  - gstin
+
+# Phrase -> document type. Lets classification assign the RIGHT type, and makes adding
+# new document types a config-only change.
+doc_type_keywords:
+  invoice:           [tax invoice, gst invoice, invoice no, invoice number]
+  credit_note:       [credit note, cr note, credit memo]
+  debit_note:        [debit note, dr note, debit memo]
+  purchase_order:    [purchase order, "p.o.", po number, po no]
+  statement:         [statement of account, account statement, monthly statement]
+  payment_advice:    [payment advice, remittance advice]
+  settlement_report: [settlement report, settlement summary, settled amount]
+  commission_report: [commission report, commission statement, commission payout]

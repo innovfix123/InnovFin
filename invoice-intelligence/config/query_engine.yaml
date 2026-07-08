@@ -1,0 +1,46 @@
+# ============================================================================
+# RECALL-FIRST QUERY ENGINE  —  configuration
+# ============================================================================
+# Governs the single broad FORWARD query and the P1–P7 label-only filters.
+#
+# CORE RULE: negative signals NEVER appear in the forward query. They may only drive the
+# Review label (or, later, metrics). Nothing suppresses forwarding — recall is paramount.
+# ============================================================================
+
+# Human-set engine version (part of every generated query's version string).
+version: v1
+
+# Query-length guard. Gmail's per-filter criteria limit is ~1500 chars ([REPORTED] in
+# docs/GMAIL_NATIVE_BEHAVIOUR.md — re-verify before treating as a hard guarantee).
+length_guard:
+  max_chars: 1500
+  strict: false          # false = warn on overflow; true = raise ConfigError
+
+# Extra finance vocabulary (P6). Reused alongside invoice_keywords / gmail_routing tokens.
+finance_keywords:
+  - gstin
+  - hsn
+  - sac
+  - taxable value
+  - amount payable
+  - amount due
+  - igst
+  - cgst
+  - sgst
+  - tax invoice
+
+# Catch-all net (P7): the broadest safe signal. An attachment PDF alone is enough to
+# consider (and label) a mail as a possible invoice — recall-first.
+catch_all:
+  require_attachment_pdf: true
+
+# P1–P7 tiers. Order + labels are configurable. `signal` selects a built-in signal builder;
+# new signal builders can be registered in code without changing this file's shape.
+tiers:
+  - { id: P1, name: "Invoice Keywords",      signal: invoice_keywords, label: tier_keyword }
+  - { id: P2, name: "Known Vendor Domains",  signal: vendor_domains,   label: tier_vendor }
+  - { id: P3, name: "Attachment Filename",   signal: filename_tokens,  label: tier_filename }
+  - { id: P4, name: "Body Keywords",         signal: body_keywords,    label: tier_body }
+  - { id: P5, name: "Subject Keywords",      signal: subject_keywords, label: tier_subject }
+  - { id: P6, name: "Finance Keywords",      signal: finance_keywords, label: tier_finance }
+  - { id: P7, name: "Catch-all Invoice",     signal: catch_all,        label: tier_catchall }

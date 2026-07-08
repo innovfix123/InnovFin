@@ -1,0 +1,55 @@
+# Scoring weights. The scoring engine computes, per document type t:
+#
+#   score(t) = Σ_i ( strength_i * weight_i * affinity_i(t) )  −  Σ_j penalty_j
+#
+# `weight_i` is resolved as: detector_weights[id]  (if present)  else  layer_weights[layer].
+# Negative signals contribute a penalty scaled by layer_weights.negative.
+# Tune these to trade recall vs. false positives without touching code.
+
+layer_weights:
+  vendor:     1.2
+  sender:     0.8
+  auth:       0.5
+  subject:    0.7
+  body:       1.0
+  attachment: 1.4
+  pattern:    1.1
+  thread:     0.4
+  header:     0.6
+  negative:   1.5   # magnitude of negative-signal penalties
+  duplicate:  1.0
+  ai:         2.0   # reserved for future LLM/OCR detectors
+
+# Per-detector overrides (optional). Anything omitted falls back to its layer weight.
+detector_weights:
+  trusted_vendor:      1.3
+  structured_einvoice: 1.6
+  body_entity:         1.2
+  filename:            1.2
+  invoice_pattern:     1.1
+
+# Normalization: raw scores are divided by this to map into ~[0,1] before thresholding.
+# Calibrated on the labeled corpus (see testing/evaluate.py). Keep in config so
+# re-calibration never requires a code change.
+score_normalizer: 2.5
+
+# Generic positive evidence with no explicit document-type affinity is credited to this
+# default type (the dominant, routable class).
+default_type: invoice
+
+# Corroboration is counted over independent EVIDENCE DOMAINS, not raw layers, so that two
+# detectors reading the same source (e.g. body text + pattern regex on that text) do NOT
+# count as independent confirmation. This is the core false-positive guard behind the
+# "require >= 2 independent signals to auto-route" rule.
+corroboration_domains:
+  vendor:    identity      # who sent it
+  sender:    identity
+  subject:   subject       # the subject line
+  body:      content       # text the sender wrote
+  pattern:   content       # regex over that same text -> same domain as body
+  attachment: attachment   # the attached document(s)
+  auth:      auth          # authentication result
+  header:    header         # envelope / bulk-mail headers
+  thread:    thread
+  negative:  negative
+  duplicate: duplicate

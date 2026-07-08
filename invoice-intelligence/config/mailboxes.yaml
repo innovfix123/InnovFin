@@ -1,0 +1,75 @@
+# ============================================================================
+# MAILBOX REGISTRY  —  Gmail Native ONLY
+# ============================================================================
+# The single, configuration-driven source of truth for the routing topology.
+#
+# NO credentials. NO IMAP/SMTP. NO OAuth. NO App Passwords. The filter generator
+# (later milestones) turns this topology into importable Gmail filters.
+#
+# Nothing is hardcoded. Add unlimited source and central mailboxes here with NO code change.
+# The addresses below are TEST accounts and are expected to change.
+# ============================================================================
+
+version: 1
+
+# Applied to a source mailbox when it does not specify the field itself.
+defaults:
+  active: true
+  priority: 100
+  forward_target: central-primary        # id of a central mailbox below
+  labels:
+    - "Invoices/Auto"
+  assigned_rules:
+    - all                                 # rule-set ids (defined in a later milestone)
+
+# --------------------------------------------------------------------------
+# Central mailbox(es) — the "single source of truth". One or more, unlimited.
+# Each central mailbox describes how its OWN Gmail filter recognises forwarded
+# invoice mail and applies the "Invoices" label (no plus-addressing required).
+# --------------------------------------------------------------------------
+central_mailboxes:
+  - id: central-primary
+    name: "Finance Central"
+    email: satyam@innovfix.in
+    active: true
+    label: "Invoices"                     # label applied inside the central mailbox
+    routing_rules:
+      # VALIDATED 2026-07-06: forwarded Gmail shows the ORIGINAL sender in `From`, so
+      # matching source addresses does NOT label forwarded invoices in central (and they
+      # can land in Spam). Instead, match INVOICE SIGNALS + keep them out of Spam.
+      use_invoice_signals: true
+      match_from:                         # kept for reference / non-forwarded direct mail
+        - sat211053@gmail.com
+        - satyamsahu0877@gmail.com
+      match_subject: []
+      # OPTIONAL optimization only (not required). Leave null unless the environment
+      # supports plus-addressed forwarding targets, e.g. "satyam+invoices@innovfix.in".
+      plus_address: null
+
+# --------------------------------------------------------------------------
+# Source company mailboxes — monitored for invoices. Unlimited.
+# --------------------------------------------------------------------------
+source_mailboxes:
+  - id: src-sat211053
+    name: "Sat 211053"
+    email: sat211053@gmail.com
+    department: Finance
+    active: true
+    priority: critical            # semantic priority (critical|high|normal|low) OR a number
+    forward_target: central-primary
+    labels:
+      - "Invoices/Auto"
+    assigned_rules:
+      - all
+
+  - id: src-satyamsahu0877
+    name: "Satyam Sahu 0877"
+    email: satyamsahu0877@gmail.com
+    department: Procurement
+    active: true
+    priority: 90                  # numeric priorities are still fully supported
+    forward_target: central-primary
+    labels:
+      - "Invoices/Auto"
+    assigned_rules:
+      - all

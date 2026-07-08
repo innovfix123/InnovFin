@@ -1,0 +1,26 @@
+# ============================================================================
+# LABEL REGISTRY  —  every Gmail label used by the gateway, by KEY
+# ============================================================================
+# Nothing that generates a filter may hardcode a label string. Filters reference a
+# label KEY; this registry maps the key to the actual Gmail label. Rename a label here
+# and every generated filter follows — with NO code change.
+#
+# Gmail auto-creates nested labels (e.g. "Invoices/Tier/Vendor") on filter import.
+# ============================================================================
+
+version: 1
+
+labels:
+  # Core routing labels
+  invoice: "Invoices"                       # applied in the CENTRAL mailbox (source of truth)
+  invoice_auto: "Invoices/Auto"             # applied by the source-side forward filter
+  review: "Invoices/Review"                 # negatives / ambiguous → human review (never blocks)
+
+  # P1–P7 tier labels (label-only observability: WHY a mail was considered an invoice)
+  tier_keyword: "Invoices/Tier/Keyword"     # P1 Tax/GST/Invoice/E-Invoice keywords
+  tier_vendor: "Invoices/Tier/Vendor"       # P2 known vendor domains
+  tier_filename: "Invoices/Tier/Filename"   # P3 attachment filename rules
+  tier_body: "Invoices/Tier/Body"           # P4 body keywords
+  tier_subject: "Invoices/Tier/Subject"     # P5 subject keywords
+  tier_finance: "Invoices/Tier/Finance"     # P6 finance keywords
+  tier_catchall: "Invoices/Tier/Catchall"   # P7 catch-all invoice net

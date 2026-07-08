@@ -1,0 +1,56 @@
+# ============================================================================
+# VENDOR REGISTRY  —  FOUNDATION ONLY (Milestone 1)
+# ============================================================================
+# A clean, validated configuration structure for vendors that later milestones
+# (vendor-aware detection, normalization, dedup by vendor + invoice number) will build on.
+#
+# NO business logic is wired to this file yet. It is intentionally separate from
+# config/trusted_vendors.yaml (used live by the detectors) so this foundation changes
+# no working code. A future milestone will consolidate the two.
+#
+# trust_level: normal | trusted | strategic
+# ============================================================================
+
+version: 1
+
+defaults:
+  active: true
+  trust_level: normal
+  category: ""
+  priority: normal        # future-ready semantic priority: critical | high | normal | low
+  finance_type: ""
+
+vendors:
+  - id: amazon
+    name: "Amazon"
+    active: true
+    trust_level: trusted
+    category: ecommerce
+    priority: high
+    finance_type: invoice
+    domains: [amazon.in, amazon.com]
+    gstins: []          # future: known billing GSTINs for verification
+    aliases: []          # future: name variants seen on invoices
+
+  - id: aws
+    name: "Amazon Web Services"
+    trust_level: trusted
+    category: cloud
+    priority: critical
+    finance_type: subscription
+    domains: [aws.amazon.com, amazon.com]
+
+  - id: razorpay
+    name: "Razorpay"
+    trust_level: trusted
+    category: payments
+    priority: high
+    finance_type: invoice
+    domains: [razorpay.com]
+
+  - id: zoho
+    name: "Zoho"
+    category: saas
+    priority: normal
+    finance_type: subscription
+    domains: [zoho.com, zohobooks.com]

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:apps="http://schemas.google.com/apps/2006">
+  <title>Mail Filters</title>
+  <entry>
+    <category term="filter"/>
+    <title>Invoice -&gt; forward to central</title>
+    <apps:property name="hasTheWord" value='((from:(amazon.in OR amazon.com OR aws.amazon.com OR adobe.com OR mail.adobe.com OR microsoft.com OR microsoftstore.com OR google.com OR cloud.google.com OR payments.google.com OR oracle.com OR sap.com OR zoho.com OR zohobooks.com OR phonepe.com OR razorpay.com OR cashfree.com OR airtel.com OR airtel.in OR jio.com OR ril.com) has:attachment) OR filename:(invoice OR "tax-invoice" OR bill OR receipt OR gst OR statement OR "credit-note" OR "debit-note" OR "payment-advice" OR po) OR subject:("tax invoice" OR "gst invoice" OR "e-invoice" OR "proforma invoice" OR invoice OR "payment advice" OR "remittance advice" OR "credit note" OR "debit note" OR "purchase order" OR "statement of account") OR ("tax invoice" OR "gst invoice" OR gstin OR "amount due" OR "amount payable" OR "please find attached" OR "invoice number")) -from:(linkedin.com OR github.com OR meetup.com OR zoom.us OR calendly.com OR facebookmail.com) -subject:(newsletter OR unsubscribe OR meeting OR webinar OR otp OR "password reset" OR interview OR promotion OR sale) -in:chats'/>
+    <apps:property name="label" value="Invoice/Auto"/>
+    <apps:property name="shouldForward" value="true"/>
+    <apps:property name="forwardTo" value="satyam@innovfix.in"/>
+    <apps:property name="shouldNeverSpam" value="true"/>
+    <apps:property name="sizeOperator" value="s_sl"/>
+    <apps:property name="sizeUnit" value="s_smb"/>
+  </entry>
+  <entry>
+    <category term="filter"/>
+    <title>Invoice review -&gt; label only</title>
+    <apps:property name="hasTheWord" value='has:attachment filename:pdf -((from:(amazon.in OR amazon.com OR aws.amazon.com OR adobe.com OR mail.adobe.com OR microsoft.com OR microsoftstore.com OR google.com OR cloud.google.com OR payments.google.com OR oracle.com OR sap.com OR zoho.com OR zohobooks.com OR phonepe.com OR razorpay.com OR cashfree.com OR airtel.com OR airtel.in OR jio.com OR ril.com) has:attachment) OR filename:(invoice OR "tax-invoice" OR bill OR receipt OR gst OR statement OR "credit-note" OR "debit-note" OR "payment-advice" OR po) OR subject:("tax invoice" OR "gst invoice" OR "e-invoice" OR "proforma invoice" OR invoice OR "payment advice" OR "remittance advice" OR "credit note" OR "debit note" OR "purchase order" OR "statement of account") OR ("tax invoice" OR "gst invoice" OR gstin OR "amount due" OR "amount payable" OR "please find attached" OR "invoice number")) -from:(linkedin.com OR github.com OR meetup.com OR zoom.us OR calendly.com OR facebookmail.com) -subject:(newsletter OR unsubscribe OR meeting OR webinar OR otp OR "password reset" OR interview OR promotion OR sale) -in:chats'/>
+    <apps:property name="label" value="Invoice/Review"/>
+    <apps:property name="shouldNeverSpam" value="true"/>
+  </entry>
+</feed>

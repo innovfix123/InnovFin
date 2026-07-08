@@ -1,0 +1,71 @@
+# Gmail-native routing (Phase 1: no IMAP / API / OAuth / SMTP / polling).
+#
+# This config drives the generator that turns our detection rules into importable Gmail
+# FILTERS. Gmail then does the routing itself. Gmail can match sender, subject, body words
+# and ATTACHMENT FILENAMES — it CANNOT read attachment contents, so no GSTIN/amount/invoice
+# number inside a PDF is visible to native rules (documented limitation).
+
+# Central mailbox that invoice mail is forwarded to (must be verified once per source account).
+forward_to: satyam@innovfix.in
+
+# Labels applied by the generated filters. Gmail auto-creates nested labels on import.
+labels:
+  invoice: "Invoice/Auto"      # applied to forwarded invoices
+  review: "Invoice/Review"     # applied to ambiguous mail (NOT forwarded — human checks it)
+
+# Which signal groups to include when building the native query.
+query:
+  use_vendor_from: true        # from:(trusted vendor domains)
+  use_subject_keywords: true   # subject:(invoice keywords)
+  use_filename_patterns: true  # filename:(invoice-ish attachment names)
+  use_body_keywords: true      # body words (subject+body text only; NOT attachment contents)
+  exclude_chats: true          # -in:chats
+
+# Gmail filename tokens. Gmail's filename: matches attachment NAMES (not contents).
+# Multi-word / hyphenated tokens are auto-quoted (Gmail treats '-' as an operator).
+filename_tokens:
+  - invoice
+  - "tax-invoice"
+  - bill
+  - receipt
+  - gst
+  - statement
+  - "credit-note"
+  - "debit-note"
+  - "payment-advice"
+  - po
+
+# Body/subject phrases that Gmail CAN search (plain text of the email, not attachments).
+body_tokens:
+  - "tax invoice"
+  - "gst invoice"
+  - gstin
+  - "amount due"
+  - "amount payable"
+  - "please find attached"
+  - "invoice number"
+
+# Negative guards to suppress false forwards.
+negative_from:
+  - linkedin.com
+  - github.com
+  - meetup.com
+  - zoom.us
+  - calendly.com
+  - facebookmail.com
+negative_subject:
+  - newsletter
+  - unsubscribe
+  - meeting
+  - webinar
+  - otp
+  - "password reset"
+  - interview
+  - promotion
+  - sale
+
+# The two source accounts these filters are generated for (routing endpoints only; no
+# credentials, no protocol — the user imports the filters into each account's settings).
+source_accounts:
+  - satyamsahu0877@gmail.com
+  - sat211053@gmail.com

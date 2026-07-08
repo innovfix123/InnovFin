@@ -1,0 +1,28 @@
+# Known invoice-sending vendors and their domains. Sender/Vendor detectors use this.
+# `doc_types` lists the document types a vendor is known to send (raises affinity for those).
+# Add vendors here with NO code change.
+
+vendors:
+  - { name: Amazon,       domains: [amazon.in, amazon.com],                         doc_types: [invoice, statement] }
+  - { name: AWS,          domains: [aws.amazon.com, amazon.com],                    doc_types: [invoice] }
+  - { name: Adobe,        domains: [adobe.com, mail.adobe.com],                     doc_types: [invoice] }
+  - { name: Microsoft,    domains: [microsoft.com, microsoftstore.com],            doc_types: [invoice] }
+  - { name: Google Cloud, domains: [google.com, cloud.google.com, payments.google.com], doc_types: [invoice] }
+  - { name: Oracle,       domains: [oracle.com],                                    doc_types: [invoice] }
+  - { name: SAP,          domains: [sap.com],                                       doc_types: [invoice] }
+  - { name: Zoho,         domains: [zoho.com, zohobooks.com],                       doc_types: [invoice, statement] }
+  - { name: PhonePe,      domains: [phonepe.com],                                   doc_types: [invoice, settlement_report] }
+  - { name: Razorpay,     domains: [razorpay.com],                                  doc_types: [invoice, settlement_report] }
+  - { name: Cashfree,     domains: [cashfree.com],                                  doc_types: [invoice, settlement_report] }
+  - { name: Airtel,       domains: [airtel.com, airtel.in],                         doc_types: [invoice] }
+  - { name: Jio,          domains: [jio.com, ril.com],                              doc_types: [invoice] }
+
+# Free / consumer mail providers. Sending an "invoice" from these is weaker evidence.
+free_mail_domains:
+  - gmail.com
+  - outlook.com
+  - hotmail.com
+  - yahoo.com
+  - yahoo.co.in
+  - protonmail.com
+  - icloud.com

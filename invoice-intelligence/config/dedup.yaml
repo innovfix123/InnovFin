@@ -1,0 +1,8 @@
+# ============================================================================
+# INVOICE DEDUP  —  Part 2, Milestone 2.6  (deterministic, no AI)
+# ============================================================================
+# Semantic dedup ledger. Key = IRN if present, else vendor GSTIN + invoice number.
+# Leave index_path unset to keep the ledger in memory only (per-run).
+
+registry:
+  index_path: build/dedup_ledger.json

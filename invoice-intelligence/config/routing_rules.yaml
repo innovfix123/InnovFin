@@ -1,0 +1,25 @@
+# Decision + routing rules. Nothing here is hardcoded in the engine.
+#
+# Decision logic (see core/decision.py):
+#   normalized_score >= t_high AND corroboration >= min_corroboration AND not blocked  -> INVOICE
+#   t_low <= score < t_high  OR  (positive AND negative)  OR  unreadable-but-likely     -> REVIEW
+#   score < t_low with no positive evidence                                             -> NOT_INVOICE
+#
+# The ONLY path to NOT_INVOICE is "no positive evidence" -> this keeps hard false
+# negatives (an invoice silently dropped) near zero.
+
+thresholds:
+  t_high: 0.60            # >= => INVOICE (given corroboration)
+  t_low:  0.30            # >= t_low and < t_high => REVIEW
+  min_corroboration: 2    # distinct signal LAYERS required to auto-route to INVOICE
+
+negative_override:
+  # A negative signal at/above this strength is "strong".
+  strong_negative_strength: 0.60
+  # strong negative + zero positive  -> NOT_INVOICE (confident)
+  # strong negative + any positive   -> REVIEW (never auto-INVOICE, never auto-NOT)
+
+routing_actions:
+  invoice:     copy_to_central   # COPY raw RFC822 via IMAP APPEND (SMTP forward fallback)
+  review:      label_review      # apply review label in the source mailbox
+  not_invoice: leave             # no action; email stays in place

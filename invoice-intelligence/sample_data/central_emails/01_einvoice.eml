@@ -1,0 +1,28 @@
+From: vendor@acme.com
+To: sat211053@gmail.com
+Subject: Tax Invoice INV-DEMO-001
+Message-ID: <2205354116@mail>
+Authentication-Results: mx.google.com; spf=pass; dkim=pass; dmarc=pass
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============0244441155463536979=="
+
+--===============0244441155463536979==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+PFA e-invoice
+
+--===============0244441155463536979==
+Content-Type: application/json
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="inv.json"
+MIME-Version: 1.0
+
+eyJJcm4iOiAiaXJuLWRlbW8tMSIsICJEb2NEdGxzIjogeyJObyI6ICJJTlYtREVNTy0wMDEiLCAi
+RHQiOiAiMDYvMDcvMjAyNiJ9LCAiU2VsbGVyRHRscyI6IHsiR3N0aW4iOiAiMjdBQUJDVTk2MDNS
+MVpOIiwgIkxnbE5tIjogIkFjbWUgU3VwcGxpZXMifSwgIkJ1eWVyRHRscyI6IHsiR3N0aW4iOiAi
+MjlBQUdDUjEyMzRNMVo0IiwgIkxnbE5tIjogIklubm92Zml4In0sICJWYWxEdGxzIjogeyJBc3NW
+YWwiOiAxMDAwMCwgIkNnc3RWYWwiOiA5MDAsICJTZ3N0VmFsIjogOTAwLCAiVG90SW52VmFsIjog
+MTE4MDB9LCAiSXRlbUxpc3QiOiBbeyJIc25DZCI6ICI5OTgzMTQifV19
+
+--===============0244441155463536979==--

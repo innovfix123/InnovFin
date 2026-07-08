@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "invoice-email-gateway"
+version = "0.1.0"
+description = "Enterprise Invoice Email Gateway (Phase 1) — multi-layer invoice email filter + routing."
+requires-python = ">=3.11"
+dependencies = ["PyYAML>=6.0", "pandas>=2.0"]
+
+[tool.setuptools]
+py-modules = ["cli"]
+packages = ["core", "parsing", "detectors", "testing", "gmail_native", "registry", "metrics", "mailreader", "attachments", "storage", "documents", "doctype", "extraction",
+            "fields", "validation", "dedup", "canonical", "pipeline", "mcp_server", "monitoring", "review"]
+
+[tool.pytest.ini_options]
+# Run pytest from the repo root; this puts the top-level packages on sys.path
+# so tests can `from core.signal import Signal` without an editable install.
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"

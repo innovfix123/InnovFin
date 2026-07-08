@@ -38,6 +38,12 @@ yarn-debug.log*
 /OnlyCare-TDS-mcp/logs/
 /Hima-TDS-mcp/logs/
 /Gateway-Settlements-mcp/logs/
+/invoice-intelligence/logs/
+
+# invoice-intelligence Python service: venv + runtime state (captured invoice data, blobs, SQLite
+# store, dedup/registry ledgers, audit JSONL) — source is tracked, runtime state is NEVER committed.
+/invoice-intelligence/.venv/
+/invoice-intelligence/build/
 
 # OS / editor
 .DS_Store

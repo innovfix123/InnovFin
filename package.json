@@ -19,6 +19,10 @@
     "mcp:gateway": "tsx src/mcp/gateway-settlements/server.ts",
     "mcp:gateway:check": "tsx src/mcp/gateway-settlements/check-anchor.ts",
     "mcp:gateway:smoke": "tsx src/mcp/gateway-settlements/smoke.ts",
+    "mcp:invoice": "cd invoice-intelligence && .venv/bin/python -m mcp_server.server",
+    "mcp:invoice:http": "invoice-intelligence/scripts/run_mcp_innovfin.sh",
+    "mcp:invoice:test": "cd invoice-intelligence && .venv/bin/python -m pytest -q",
+    "mcp:invoice:pipeline": "cd invoice-intelligence && .venv/bin/python cli.py collect && .venv/bin/python cli.py pipeline",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio"

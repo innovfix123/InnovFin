@@ -1,0 +1,62 @@
+# ============================================================================
+# ATTACHMENT COLLECTOR  —  configuration (Phase 2, Milestone 1)
+# ============================================================================
+# Reads invoice emails from a mailbox (via a pluggable Mail Reader adapter), downloads
+# supported attachments, hashes + de-duplicates them, and stores them locally.
+# Nothing hardcoded — reader type, paths and supported types are all configurable.
+
+version: 1
+
+# Mail Reader adapter. `sample` reads .eml files from a folder (no credentials needed).
+# `imap` reads the LIVE central mailbox (approved primary provider).
+mail_reader:
+  # ---- innovfin: LIVE — reads the central mailbox invoices@innovfix.in over IMAP ----
+  # Password comes ONLY from the INVOICE_IMAP_PASSWORD env var (in /var/www/innovfin/.env, gitignored).
+  # Revert to `type: sample` for an offline run on the bundled fixtures.
+  type: imap
+  sample_dir: sample_data/central_emails   # (unused in imap mode; offline fallback fixtures)
+
+  host: imap.gmail.com               # Gmail/Workspace IMAP host
+  port: 993
+  use_ssl: true
+  username: invoices@innovfix.in     # central mailbox (note the plural 's')
+  password_env: INVOICE_IMAP_PASSWORD  # 16-char Google App Password lives in this env var
+  mailbox: INBOX                     # rule delivers the copy to the inbox
+  search: UNSEEN                     # (only used in mark_mode: seen)
+  mark_seen: true                    # mark processed so the next run skips it (idempotent)
+  limit: 25                          # FIRST-RUN SAFETY: process 25 most-recent only.
+                                     # Baad mein remove/raise karo full backlog ke liye.
+
+  # ---- Processed-marker lifecycle -------------------------------------------
+  # mark_mode: label  -> apply a Gmail label ("Processed") after durable capture, and read only
+  #   messages that do NOT yet carry it. RECOMMENDED for the shared central mailbox: a human
+  #   opening/reading a message no longer causes it to be skipped (no silent miss), and the
+  #   mailbox shows exactly what the pipeline has handled.
+  # mark_mode: seen   -> flag \Seen and read UNSEEN (simpler, but read-by-human = miss risk).
+  mark_mode: label
+  processed_label: Processed         # Gmail label stamped on every processed message
+  # After classification the pipeline also tags each message Invoice / Not-Invoice (outcome
+  # labels), so the central mailbox has a clean, pipeline-driven "only invoices" view.
+
+# Where downloaded attachments are stored (content-addressed by SHA-256).
+storage:
+  root: build/attachments
+
+# Attachment registry index (idempotency + dedup ledger).
+registry:
+  index_path: build/attachments/index.json
+
+# Append-only audit trail of every collection decision.
+audit:
+  path: build/audit/attachments.jsonl
+
+# Only these attachment extensions are collected. Anything else is ignored gracefully.
+supported_types:
+  - pdf
+  - xml
+  - json
+  - jpg
+  - jpeg
+  - png
+  - tiff
+  - tif

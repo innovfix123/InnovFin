@@ -1,0 +1,29 @@
+# Financial-document taxonomy.
+#
+# This is the single most important extensibility point: adding a new document type
+# here (plus giving detectors/patterns an affinity for it) extends the whole system
+# with NO code change. The 3-way routing decision (Invoice / Review / Not) is DERIVED
+# from these types, so Credit Note, Debit Note, PO, Statement, Payment Advice,
+# Settlement Report and Commission Report are first-class today.
+
+types:
+  invoice:           { label: "Invoice" }
+  credit_note:       { label: "Credit Note" }
+  debit_note:        { label: "Debit Note" }
+  purchase_order:    { label: "Purchase Order" }
+  statement:         { label: "Statement" }
+  payment_advice:    { label: "Payment Advice" }
+  settlement_report: { label: "Settlement Report" }
+  commission_report: { label: "Commission Report" }
+
+# Which document types, when detected with high confidence, are COPIED to the central
+# mailbox. Remove a type here to route it to Review instead (business decision, no code).
+routable_to_central:
+  - invoice
+  - credit_note
+  - debit_note
+  - purchase_order
+  - statement
+  - payment_advice
+  - settlement_report
+  - commission_report

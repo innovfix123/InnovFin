@@ -27,6 +27,13 @@ const nextConfig: NextConfig = {
       { source: "/.well-known/oauth-authorization-server/mcp/gateway-settlements", destination: "/mcp/gateway-settlements/oauth/authorization-server-metadata" },
       { source: "/.well-known/openid-configuration/mcp/gateway-settlements", destination: "/mcp/gateway-settlements/oauth/authorization-server-metadata" },
       { source: "/mcp/gateway-settlements/.well-known/oauth-authorization-server", destination: "/mcp/gateway-settlements/oauth/authorization-server-metadata" },
+      // Invoice Intelligence AS uses a PATH-BASED issuer (https://host/mcp/invoice-intelligence) too —
+      // metadata under path-inserted well-known locations, no collision with the others. Served at BOTH
+      // the RFC 8414 path-insertion and the path-suffix location so any spec-compliant client finds it.
+      { source: "/.well-known/oauth-protected-resource/mcp/invoice-intelligence", destination: "/mcp/invoice-intelligence/oauth/protected-resource-metadata" },
+      { source: "/.well-known/oauth-authorization-server/mcp/invoice-intelligence", destination: "/mcp/invoice-intelligence/oauth/authorization-server-metadata" },
+      { source: "/.well-known/openid-configuration/mcp/invoice-intelligence", destination: "/mcp/invoice-intelligence/oauth/authorization-server-metadata" },
+      { source: "/mcp/invoice-intelligence/.well-known/oauth-authorization-server", destination: "/mcp/invoice-intelligence/oauth/authorization-server-metadata" },
     ];
   },
 };

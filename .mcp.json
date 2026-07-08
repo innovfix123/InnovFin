@@ -11,6 +11,12 @@
     "gateway-settlements": {
       "command": "/var/www/innovfin/node_modules/.bin/tsx",
       "args": ["/var/www/innovfin/src/mcp/gateway-settlements/server.ts"]
+    },
+    "invoice-intelligence": {
+      "command": "/var/www/innovfin/invoice-intelligence/.venv/bin/python",
+      "args": ["-m", "mcp_server.server"],
+      "cwd": "/var/www/innovfin/invoice-intelligence",
+      "env": { "INVOICE_CONFIG_DIR": "config" }
     }
   }
 }

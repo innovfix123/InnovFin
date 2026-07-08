@@ -1,0 +1,23 @@
+# Phase 1 runtime dependencies.
+PyYAML>=6.0
+pandas>=2.0
+
+# Part 2 — Invoice Intelligence (deterministic-first, local; no paid AI).
+pymupdf>=1.24        # digital-PDF text extraction + page rendering for OCR
+pytesseract>=0.3.10  # wrapper for the Tesseract OCR binary (install Tesseract separately)
+pillow>=10.0         # image handling for OCR
+# NOTE: Tesseract OCR requires the system binary (e.g. UB Mannheim Windows installer).
+# Cloud OCR/AI providers are optional and intentionally NOT listed here.
+
+# PostgreSQL backend (production). Optional: if missing, the store falls back to SQLite.
+psycopg[binary]>=3.1
+
+# MCP server (expose the pipeline as Model Context Protocol tools for Claude/agents).
+mcp>=1.0
+# HTTP/SSE transport for the MCP server (the remote URL connector). Usually pulled in by `mcp`,
+# listed explicitly so the URL feature works on a fresh install.
+uvicorn>=0.30
+starlette>=0.37
+
+# Dev / test
+pytest>=8.0

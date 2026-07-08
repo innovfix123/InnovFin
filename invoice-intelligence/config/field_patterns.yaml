@@ -1,0 +1,8 @@
+# ============================================================================
+# FIELD EXTRACTION PATTERNS  —  Part 2, Milestone 2.4  (deterministic, no AI)
+# ============================================================================
+# Regex patterns applied to digital-PDF / OCR text. Structured (XML/JSON) e-invoices are mapped
+# by key directly in code. Override or add patterns here — one capture group per field.
+# Leave empty to use the built-in defaults.
+
+patterns: {}

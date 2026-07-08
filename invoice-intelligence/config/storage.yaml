@@ -1,0 +1,17 @@
+# ============================================================================
+# INVOICE STORAGE  —  Part 2, Milestone 2.8  (production: PostgreSQL)
+# ============================================================================
+# Production backend is PostgreSQL (the approved production DB). SQLite is retained
+# as a first-class FALLBACK adapter: if PostgreSQL can't be reached and
+# fallback_to_sqlite is true, the store degrades to SQLite instead of failing.
+
+backend: sqlite                   # postgres | sqlite  — innovfin: SQLite first (app-owned store), Postgres later
+
+# Connection string. Prefer the INVOICE_DB_DSN environment variable in real deployments
+# so no secret lives in the repo; this local value is the dev default.
+dsn: "postgresql://postgres:invoicedev@localhost:5432/invoices"
+
+# Production: fail loud if PostgreSQL is unavailable (never silently degrade to a local SQLite
+# file that the team won't be watching). Set true only for offline/dev.
+fallback_to_sqlite: true
+path: build/invoices.db           # SQLite file used as the fallback (and for `backend: sqlite`)

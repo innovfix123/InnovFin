@@ -1,0 +1,33 @@
+# Maps machine reason codes -> human-readable labels for the explainable decision output.
+# Detectors emit codes; the ExplanationBuilder renders labels. Unknown codes fall back to
+# a title-cased version of the code, so a missing entry never breaks the output.
+
+# Positive reasons
+trusted_vendor:          "Trusted Vendor"
+vendor_history_match:    "Vendor History Match"
+corporate_domain:        "Corporate Sender Domain"
+invoice_pdf_attachment:  "Invoice PDF Attachment"
+attachment_present:      "Attachment Present"
+invoice_filename:        "Invoice Filename"
+structured_einvoice:     "Structured e-Invoice (XML)"
+invoice_number_pattern:  "Invoice Number Pattern"
+po_number_pattern:       "Purchase Order Number"
+gstin_found:             "GSTIN Found"
+pan_found:               "PAN Found"
+amount_found:            "Amount / Currency Found"
+financial_keywords:      "Financial Keywords"
+subject_invoice_keyword: "Invoice Keyword in Subject"
+auth_pass:               "Sender Authenticated (SPF/DKIM/DMARC)"
+
+# Negative reasons
+meeting_invitation:      "Meeting Invitation"
+calendar_event:          "Calendar Event"
+marketing_bulk:          "Marketing / Bulk Email"
+notification_domain:     "Notification / Social Domain"
+otp_security:            "OTP / Security Notification"
+no_financial_evidence:   "No Financial Evidence"
+no_attachment:           "No Attachment"
+free_mail_sender:        "Free-mail Sender"
+reply_to_mismatch:       "Reply-To Differs From Sender"
+auth_fail:               "Sender Authentication Failed"
+duplicate:               "Duplicate of Previously Seen Email"

@@ -1,0 +1,52 @@
+# Negative intelligence — signals that suppress false positives.
+#
+# IMPORTANT: a negative signal NEVER hard-rejects on its own when positive evidence is
+# also present; in that case the email goes to REVIEW (see routing_rules.yaml).
+
+keywords:
+  - meeting
+  - meeting invite
+  - calendar invite
+  - webinar
+  - linkedin
+  - connection request
+  - github
+  - pull request
+  - newsletter
+  - unsubscribe
+  - promotion
+  - "% off"
+  - flash sale
+  - limited offer
+  - otp
+  - one-time password
+  - verification code
+  - password reset
+  - verify your email
+  - security alert
+  - sign-in attempt
+  - interview
+  - job application
+  - shortlisted
+  - holiday
+  - birthday
+  - zoom meeting
+  - microsoft teams
+  - google meet
+
+# Sender domains that are almost never invoice senders.
+domains:
+  - linkedin.com
+  - github.com
+  - meetup.com
+  - zoom.us
+  - calendly.com
+  - facebookmail.com
+  - twitter.com
+  - x.com
+
+# Header-based negative signals (strong markers of bulk/marketing/automation).
+headers:
+  list_unsubscribe: true      # presence of List-Unsubscribe => bulk/marketing
+  precedence_bulk: true       # Precedence: bulk/list
+  calendar_method_request: true  # text/calendar part with METHOD:REQUEST => meeting invite

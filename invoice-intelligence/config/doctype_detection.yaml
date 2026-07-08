@@ -1,0 +1,28 @@
+# ============================================================================
+# DOCUMENT TYPE DETECTION  —  Part 2, Milestone 2.2
+# ============================================================================
+# Plugin architecture: each detector is enabled/ordered here. Order = priority when two
+# detectors return the same confidence. Detection is configuration-driven; nothing hardcoded.
+
+version: 1
+
+detectors:
+  - { name: email_body,    enabled: true }   # captured email body -> TEXT_BODY (before all others)
+  - { name: encrypted_pdf, enabled: true }   # /Encrypt -> ENCRYPTED_PDF (before digital/scanned)
+  - { name: pdf_layer,     enabled: true }   # digital (text layer) vs scanned (image-only)
+  - { name: xml_invoice,   enabled: true }   # XML -> structured
+  - { name: json_einvoice, enabled: true }   # JSON (GST INV-01) -> structured
+  - { name: image,         enabled: true }   # JPG / PNG / TIFF by magic bytes
+  - { name: archive,       enabled: true }   # ZIP by magic bytes
+
+rules:
+  # When a PDF has no detectable text layer AND no image markers, which way to lean.
+  pdf_ambiguous_default: scanned
+  # Minimum text-show operators for a PDF to count as "digital".
+  min_text_ops: 1
+  # JSON keys that mark a GST e-invoice (raise confidence when present).
+  einvoice_json_keys: [Irn, SellerDtls, AckNo, DocDtls, BuyerDtls]
+
+# Append-only audit trail of every typing decision.
+audit:
+  path: build/audit/doctype.jsonl

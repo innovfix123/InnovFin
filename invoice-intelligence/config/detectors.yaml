@@ -1,0 +1,54 @@
+# Detector registry configuration.
+#
+# Each detector is an independent plugin. Enable/disable and order them here.
+# `strict: false` keeps the project runnable as detectors are implemented incrementally:
+# ids that are listed here but not yet registered in code are skipped with a warning.
+# Set `strict: true` in production to fail fast on an unknown detector id.
+
+strict: false
+
+detectors:
+  # --- Sender / Vendor intelligence ---
+  - { id: trusted_vendor,          layer: vendor,     enabled: true }
+  - { id: sender_reputation,       layer: sender,     enabled: true }
+  - { id: vendor_history,          layer: vendor,     enabled: true }
+  - { id: free_mail,               layer: sender,     enabled: true }
+  - { id: reply_to_mismatch,       layer: sender,     enabled: true }
+
+  # --- Authentication / header hygiene ---
+  - { id: email_auth,              layer: auth,       enabled: true }
+  - { id: header_hygiene,          layer: header,     enabled: true }
+
+  # --- Subject intelligence ---
+  - { id: subject_keyword,         layer: subject,    enabled: true }
+  - { id: subject_invoice_number,  layer: subject,    enabled: true }
+
+  # --- Body intelligence ---
+  - { id: body_financial_keyword,  layer: body,       enabled: true }
+  - { id: body_entity,             layer: body,       enabled: true }
+  - { id: body_phrase,             layer: body,       enabled: true }
+
+  # --- Attachment intelligence ---
+  - { id: attachment_presence,     layer: attachment, enabled: true }
+  - { id: filename,                layer: attachment, enabled: true }
+  - { id: mime_type,               layer: attachment, enabled: true }
+  - { id: structured_einvoice,     layer: attachment, enabled: true }
+  - { id: attachment_anomaly,      layer: attachment, enabled: true }
+
+  # --- Pattern intelligence ---
+  - { id: invoice_pattern,         layer: pattern,    enabled: true }
+  - { id: po_pattern,              layer: pattern,    enabled: true }
+  - { id: vendor_template,         layer: pattern,    enabled: true }
+
+  # --- Thread / conversation ---
+  - { id: thread_analysis,         layer: thread,     enabled: true }
+
+  # --- Negative (false-positive suppression) ---
+  - { id: negative_classifier,     layer: negative,   enabled: true }
+
+  # --- Duplicate detection ---
+  - { id: duplicate,               layer: duplicate,  enabled: true }
+
+  # --- Future phases (disabled; plug in with NO architecture change) ---
+  - { id: ocr_entity,              layer: attachment, enabled: false }
+  - { id: llm_classifier,          layer: ai,         enabled: false }
