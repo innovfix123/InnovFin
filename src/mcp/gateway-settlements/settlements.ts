@@ -12,11 +12,19 @@
  */
 import type { Gateway, GatewaySlice, SliceFilter } from "./gateways";
 import { cashfreeCredsFor, razorpayCredsFor, isSliceConfigured, isManualGateway, selectSlices } from "./gateways";
-import { fetchCashfreeSettlements } from "@/lib/connectors/cashfree";
+import { fetchCashfreeSettlements, fetchCashfreePaymentCommission } from "@/lib/connectors/cashfree";
 import { fetchRazorpayCommission, fetchRazorpaySettlements } from "@/lib/connectors/razorpay";
 import { round2 } from "./util";
 
 export type Basis = "payment-date" | "settlement-date";
+
+/** Live-path cap for a single heavy per-transaction fetch (offline callers pass no cap). */
+const LIVE_FETCH_TIMEOUT_MS = 40_000;
+
+/** Reject with `msg` if `p` doesn't settle within `ms` (the underlying fetch is left to finish/GC). */
+function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+  return Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
+}
 
 /** The 194H fee side of one app×gateway line for a month (pre-tax-math). */
 export interface CommissionRaw {
@@ -61,14 +69,27 @@ export async function fetchCommissionRaw(slice: GatewaySlice, period: string): P
   if (slice.gateway === "cashfree") {
     const creds = cashfreeCredsFor(slice.app);
     if (!creds) return null;
-    const s = await fetchCashfreeSettlements(slice.app, creds, period);
+    // Commission is the PAYMENT-date MDR (recon, per-transaction) — the basis the monthly invoice is
+    // built on. The settlement-BATCH sum is timing-shifted; it stays the bank-reconciliation source
+    // (fetchReconcileRaw) for UTR/net, not the 194H figure.
+    // Per-transaction recon is heavy for high-volume apps (Hima ≈ 166k payments ≈ 2–3 min under
+    // Cashfree's rate limit). Cap it in the LIVE path so the tool stays responsive; on timeout the
+    // line is flagged (per-line isolation) — the authoritative figure comes from invoiceLines anyway,
+    // and the full offline figure is available via check-anchor.ts. No cap when called directly.
+    const s = await withTimeout(
+      fetchCashfreePaymentCommission(slice.app, creds, period),
+      LIVE_FETCH_TIMEOUT_MS,
+      `Cashfree payment-date recon exceeded ${LIVE_FETCH_TIMEOUT_MS / 1000}s for ${slice.app} (high transaction volume). Supply the invoice figure via invoiceLines, or run the offline reconciliation (check-anchor.ts) for the full per-transaction MDR.`,
+    );
     return {
-      app: slice.app, gateway: "cashfree", basis: "settlement-date",
+      app: slice.app, gateway: "cashfree", basis: "payment-date",
       grossVolume: round2(s.grossVolume),
       commission: round2(s.commission),
       gstOnCommission: round2(s.gstOnCommission),
       grossFee: round2(s.commission + s.gstOnCommission),
-      txnCount: s.settlements.length,
+      txnCount: s.txnCount,
+      byMethod: s.byMethod,
+      zeroFeeCount: s.zeroFeeCount,
       source: s.source,
     };
   }

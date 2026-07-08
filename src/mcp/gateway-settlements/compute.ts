@@ -128,6 +128,15 @@ const FILED_REFERENCE: Record<string, FiledReference> = {
   "2026-05": {
     total: 26865.70,
     lines: [
+      // Hima/Cashfree VALIDATED against tax invoice CF/26-27/35025 (entity 970202). The taxable
+      // ₹720,120.15 is the invoice sub-total across THREE fee streams — NOT just PG MDR:
+      //   • Payment Gateway Charges ₹444,433.15 (166,517 txns, ₹4.19Cr) — MDR+Platform+Risk; the live
+      //     payment-date recon reproduces this to the rupee (₹444,438). "Zero MDR on UPI" per invoice,
+      //     so the ~1% on UPI is Platform+Risk, correctly in payment_service_charge.
+      //   • Payouts Disbursed  ₹275,499.00 (84,109 payouts, ₹2.61Cr) — Cashfree PAYOUTS product
+      //     (account 89647), a SEPARATE payout API, NOT the PG settlement/recon API.
+      //   • UPI Autopay Mandate ₹188.00 (Subscription).
+      { app: "Hima", gateway: "cashfree", fee: 720120.15, tds: 14402.40 },
       { app: "Only Care", gateway: "cashfree", fee: 12695.67, tds: 253.91 },
       { app: "Thedal", gateway: "razorpay", fee: 1084.42, tds: 21.69 },
     ],
@@ -136,7 +145,11 @@ const FILED_REFERENCE: Record<string, FiledReference> = {
       "gateway's monthly commission invoice, GST-exclusive). Supply the GSTR-2B invoice figures via " +
       "invoiceLines to reconcile line-by-line; the live settlement-fee total alone is a different basis " +
       "and will NOT match, and PhonePe (Hima's primary gateway + Bangalore Connect) needs its manual " +
-      "figure. Only the Only Care (₹253.91) and Thedal (₹21.69) invoice lines are validated in-repo.",
+      "figure. Validated in-repo: Hima/Cashfree ₹14,402.40 (invoice CF/26-27/35025 — PG ₹444,433.15 + " +
+      "Payouts ₹275,499.00 + mandate ₹188.00), Only Care ₹253.91, Thedal ₹21.69. NOTE: the live " +
+      "payment-date figure only reconstructs the PG line — the Payouts-disbursal fee is a separate " +
+      "Cashfree product (payout API, IP-whitelisted) and mandate fees are Subscription, so the full " +
+      "invoice still needs invoiceLines until those sources are wired.",
   },
 };
 
@@ -199,6 +212,10 @@ function buildLine(slice: GatewaySlice, settlementRaw: CommissionRaw | null, inv
   // Nothing on either side → pending (or awaiting-manual) placeholder.
   if (!settlementDerived && !invoice) {
     const manual = isManualGateway(slice.gateway);
+    // A live fetch that ERRORED is NOT the same as an unconfigured gateway — don't mislabel it.
+    if (fetchError) {
+      return { ...base, taxableBasis: null, taxable194H: null, rateApplied: null, tds194H: null, code: null, majorHead: null, invoice: null, settlementDerived, reconciliation: null, flags, source: `${slice.gateway} (${slice.app})`, note: `live ${slice.gateway} API error — ${fetchError}` };
+    }
     flags.push(manual
       ? `${slice.gateway} has no settlement-report API — supply the monthly commission from its report via invoiceLines {app:"${slice.app}", gateway:"${slice.gateway}", taxable, invoiceRef?}. 194H = 2% of it.`
       : `${slice.gateway} keys not configured for ${slice.app} — line pending (slots in when keys arrive).`);
@@ -359,7 +376,8 @@ export async function computeCommission(period: string, filter?: SliceFilter, op
       "194H is 'as per invoice': taxable = the gateway's monthly commission invoice value (GST-EXCLUSIVE); " +
       "TDS = 2% (tds-core, code 1006, head 0020). Supply invoiceLines (from GSTR-2B / the invoice) — those " +
       "are authoritative. The live settlement-fee figures (settlementDerived) are a RECONCILIATION cross-check " +
-      "only (Cashfree = settlement-batch service_charge; Razorpay = payment-level fee), on a different basis.",
+      "only (Cashfree = per-transaction payment_service_charge, payment-date basis; Razorpay = payment-level fee), " +
+      "on a different basis.",
     deMinimisInr: deMinimis,
     lines,
     summary: {
