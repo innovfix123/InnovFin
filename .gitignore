@@ -40,6 +40,13 @@ yarn-debug.log*
 /Gateway-Settlements-mcp/logs/
 /invoice-intelligence/logs/
 
+# Local working directories: planning docs mixed with screenshots, raw workbooks, invoice PDFs,
+# and live API credentials pasted during build sessions. Never auto-add — review file by file
+# before anything from here is intentionally committed. (Source of truth lives in src/mcp/*.)
+/Hima-TDS-mcp/
+/OnlyCare-TDS-mcp/
+/tds-working-mcp/
+
 # invoice-intelligence Python service: venv + runtime state (captured invoice data, blobs, SQLite
 # store, dedup/registry ledgers, audit JSONL) — source is tracked, runtime state is NEVER committed.
 /invoice-intelligence/.venv/

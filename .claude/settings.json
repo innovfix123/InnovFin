@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /var/www/innovfin/.claude/hooks/db-read-only-guard.sh",
+            "timeout": 10,
+            "statusMessage": "DB read-only guard"
+          }
+        ]
+      }
+    ]
+  }
+}

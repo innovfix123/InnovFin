@@ -19,6 +19,7 @@
     "mcp:gateway": "tsx src/mcp/gateway-settlements/server.ts",
     "mcp:gateway:check": "tsx src/mcp/gateway-settlements/check-anchor.ts",
     "mcp:gateway:smoke": "tsx src/mcp/gateway-settlements/smoke.ts",
+    "mcp:tds-working": "tsx src/mcp/tds-working/server.ts",
     "mcp:invoice": "cd invoice-intelligence && .venv/bin/python -m mcp_server.server",
     "mcp:invoice:http": "invoice-intelligence/scripts/run_mcp_innovfin.sh",
     "mcp:invoice:test": "cd invoice-intelligence && .venv/bin/python -m pytest -q",
