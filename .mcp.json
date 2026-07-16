@@ -16,6 +16,10 @@
       "command": "/var/www/innovfin/node_modules/.bin/tsx",
       "args": ["/var/www/innovfin/src/mcp/tds-working/server.ts"]
     },
+    "gstr2b-estimate": {
+      "command": "/var/www/innovfin/node_modules/.bin/tsx",
+      "args": ["/var/www/innovfin/src/mcp/gstr2b-estimate/server.ts"]
+    },
     "invoice-intelligence": {
       "command": "/var/www/innovfin/invoice-intelligence/.venv/bin/python",
       "args": ["-m", "mcp_server.server"],

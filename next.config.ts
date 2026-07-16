@@ -41,6 +41,13 @@ const nextConfig: NextConfig = {
       { source: "/.well-known/oauth-authorization-server/mcp/tds-working", destination: "/mcp/tds-working/oauth/authorization-server-metadata" },
       { source: "/.well-known/openid-configuration/mcp/tds-working", destination: "/mcp/tds-working/oauth/authorization-server-metadata" },
       { source: "/mcp/tds-working/.well-known/oauth-authorization-server", destination: "/mcp/tds-working/oauth/authorization-server-metadata" },
+      // Estimated GSTR-2B AS uses a PATH-BASED issuer (https://host/mcp/gstr2b-estimate) too —
+      // metadata under path-inserted well-known locations, no collision with the others. Served at
+      // BOTH the RFC 8414 path-insertion and the path-suffix location so any client finds it.
+      { source: "/.well-known/oauth-protected-resource/mcp/gstr2b-estimate", destination: "/mcp/gstr2b-estimate/oauth/protected-resource-metadata" },
+      { source: "/.well-known/oauth-authorization-server/mcp/gstr2b-estimate", destination: "/mcp/gstr2b-estimate/oauth/authorization-server-metadata" },
+      { source: "/.well-known/openid-configuration/mcp/gstr2b-estimate", destination: "/mcp/gstr2b-estimate/oauth/authorization-server-metadata" },
+      { source: "/mcp/gstr2b-estimate/.well-known/oauth-authorization-server", destination: "/mcp/gstr2b-estimate/oauth/authorization-server-metadata" },
     ];
   },
 };
