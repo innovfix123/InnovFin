@@ -20,6 +20,7 @@
     "mcp:gateway:check": "tsx src/mcp/gateway-settlements/check-anchor.ts",
     "mcp:gateway:smoke": "tsx src/mcp/gateway-settlements/smoke.ts",
     "mcp:tds-working": "tsx src/mcp/tds-working/server.ts",
+    "recon:check": "tsx --env-file=.env --max-old-space-size=8192 src/lib/recon/check-june.ts",
     "mcp:invoice": "cd invoice-intelligence && .venv/bin/python -m mcp_server.server",
     "mcp:invoice:http": "invoice-intelligence/scripts/run_mcp_innovfin.sh",
     "mcp:invoice:test": "cd invoice-intelligence && .venv/bin/python -m pytest -q",

@@ -7,7 +7,7 @@ export interface CashfreeCreds {
   apiVersion?: string;
 }
 
-interface ReconRow {
+export interface ReconRow {
   event_type?: string;     // PAYMENT | REFUND | ...
   event_status?: string;   // SUCCESS | ...
   event_time?: string;     // payment timestamp (ISO IST) — the GST/payment-date basis
@@ -49,7 +49,7 @@ async function cashfreePost(url: string, headers: Record<string, string>, body: 
   }
 }
 
-async function fetchWindow(creds: CashfreeCreds, start: string, end: string): Promise<ReconRow[]> {
+export async function fetchWindow(creds: CashfreeCreds, start: string, end: string): Promise<ReconRow[]> {
   const headers = {
     "x-client-id": creds.appId,
     "x-client-secret": creds.secretKey,

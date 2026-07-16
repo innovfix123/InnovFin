@@ -47,6 +47,15 @@ yarn-debug.log*
 /OnlyCare-TDS-mcp/
 /tds-working-mcp/
 
+# GSTR-2B working directory: 609 MB of raw PhonePe/Cashfree merchant settlement exports (.zip/.csv,
+# every customer payment for the month), the GSTR-1 working .xlsx, and build-session screenshots.
+# Customer payment data and statutory workings — never commit, and this repo is PUBLIC.
+/GSTR-2B-est-mcp/
+
+# Reconciliation anchors: revenue totals, filed-return figures and real order ids. The code that
+# reads them is public; the numbers are not. See src/lib/recon/check-june.ts.
+*.local.json
+
 # invoice-intelligence Python service: venv + runtime state (captured invoice data, blobs, SQLite
 # store, dedup/registry ledgers, audit JSONL) — source is tracked, runtime state is NEVER committed.
 /invoice-intelligence/.venv/

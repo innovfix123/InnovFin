@@ -5,6 +5,8 @@ import {
   type ParserType, type Gstr1Line,
 } from "@/gst-core/gstr1";
 import { getConnector } from "@/lib/connectors";
+import { isGatewaySource } from "@/lib/recon/flag";
+import { computeGatewaySales } from "@/lib/recon/sales-from-gateway";
 
 export const runtime = "nodejs";
 
@@ -25,6 +27,17 @@ interface SourceStatus {
 export async function POST(req: Request) {
   const form = await req.formData();
   const period = (form.get("period") as string) || "";
+
+  // ══ The gateway path is OFF. ══
+  //
+  // GST_SALES_SOURCE is unset, so salesSourceMode() is "appdb" and this branch is never taken:
+  // everything below runs exactly as it always has. Only the literal string "gateway" diverts the
+  // return to the reconciled gateway source — see src/lib/recon/flag.ts for the three rulings
+  // (refund presentation, month-boundary restatement, unregistered apps) still outstanding before
+  // anyone sets it. Enabling it changes a filed statutory return; it must never happen by accident.
+  if (isGatewaySource()) {
+    return NextResponse.json(await computeGatewaySales(period, form));
+  }
 
   const lines: Gstr1Line[] = [];
   const sources: SourceStatus[] = [];
