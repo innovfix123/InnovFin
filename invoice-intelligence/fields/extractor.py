@@ -24,9 +24,24 @@ _AMOUNT = r"([\d,]+(?:\.\d{1,2})?)(?!\s*%)"
 # actual amount ("CGST 9% 900.00" -> capture 900.00, not 9).
 _RATE = r"(?:\D*?\d{1,2}(?:\.\d+)?\s*%)?"
 
+# The standard GSTIN shape: 2 state digits + 10-char PAN + entity char + 'Z' + checksum char.
+# A foreign OIDAR supplier (e.g. Anthropic/Stripe billing an Indian buyer) carries a non-standard
+# "99…" registration that deliberately does NOT match this shape — see _reconcile_gstins().
+_GSTIN = r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Zz][0-9A-Za-z]"
+# Currencies recognised as an explicit ISO token; the symbol->code fallback below covers PDFs that
+# print only a symbol ("$100.00") with no code.
+_CURRENCY_CODE = r"USD|INR|EUR|GBP|SGD|AED|AUD|CAD|JPY|CNY|CHF|HKD"
+_CURRENCY_SYMBOLS = {"₹": "INR", "$": "USD", "€": "EUR", "£": "GBP"}
+
 # Default regex patterns (config-overridable). Each maps a field -> pattern with one group.
 _DEFAULT_PATTERNS = {
-    "vendor_gstin": r"\b(\d{2}[A-Z]{5}\d{4}[A-Z]\d[Zz][0-9A-Za-z])\b",
+    "vendor_gstin": r"\b(" + _GSTIN + r")\b",
+    # Buyer / bill-to GSTIN, anchored to the recipient block so it is never confused with the
+    # seller's. This also RESCUES vendor_gstin: when the seller is a foreign OIDAR (non-standard
+    # "99…" reg), the only standard-shape GSTIN on the page is our own bill-to one, which the
+    # label-less vendor_gstin grab would wrongly take. _reconcile_gstins() undoes that.
+    "buyer_gstin": r"(?:bill(?:ed)?\s*to|sold\s*to|ship\s*to|buyer|recipient)\b"
+                   r"[\s\S]{0,300}?\b(" + _GSTIN + r")\b",
     "invoice_number": r"(?:invoice|bill|receipt)\s*(?:no|number|#|num)\.?\s*[:\-]?\s*"
                       r"([A-Za-z0-9][A-Za-z0-9\-\/]{2,})",
     # Any of the common date labels (including a bare "date"), then the value — `\s*` spans the
@@ -43,6 +58,7 @@ _DEFAULT_PATTERNS = {
     "total": r"(?:grand\s*total|total\s*amount|total\s*value|total\s*invoice\s*value|"
              r"invoice\s*value|invoice\s*total|amount\s*payable|amount\s*due|balance\s*due|"
              r"net\s*payable|total\s*payable)\D{0,12}?" + _AMOUNT,
+    "currency": r"\b(" + _CURRENCY_CODE + r")\b",
 }
 _AMOUNT_FIELDS = {"cgst", "sgst", "igst", "taxable_value", "total", "cess"}
 
@@ -177,3 +193,34 @@ class FieldExtractor:
             if name in _AMOUNT_FIELDS:
                 value = _num(value)
             f.set(name, value, 0.6, f"text:{name}")
+        self._reconcile_gstins(f)
+        self._infer_currency_symbol(text, f)
+
+    def _reconcile_gstins(self, f: InvoiceFields) -> None:
+        """Drop a self-referential vendor GSTIN grabbed from text.
+
+        The label-less ``vendor_gstin`` pattern takes the first standard-shape GSTIN in the text.
+        On an invoice whose seller is a foreign OIDAR supplier — whose "99…" registration does not
+        match the standard shape — the only standard GSTIN present is our OWN bill-to one, so it is
+        wrongly captured as the vendor. When the buyer pattern confirms that exact GSTIN is the
+        recipient's, we drop it as the vendor rather than record a self-issued invoice: the seller
+        GSTIN is then (correctly) blank and the invoice falls to needs_review. Only a text-sourced
+        vendor is touched, so a high-confidence structured mapping is never second-guessed.
+        """
+        vendor = f.get("vendor_gstin")
+        buyer = f.get("buyer_gstin")
+        if vendor is None or buyer is None:
+            return
+        if vendor.value == buyer.value and vendor.source.startswith("text:"):
+            del f.fields["vendor_gstin"]
+
+    def _infer_currency_symbol(self, text: str, f: InvoiceFields) -> None:
+        """Fallback when no explicit ISO code (USD/INR/…) was found: map a currency SYMBOL attached
+        to an amount (e.g. ``$100.00``) to its code, so a foreign-currency PDF is never silently
+        stored as null and treated as rupees downstream."""
+        if f.value("currency") is not None:
+            return
+        for sym, code in _CURRENCY_SYMBOLS.items():
+            if re.search(re.escape(sym) + r"\s*\d", text):
+                f.set("currency", code, 0.5, "text:currency_symbol")
+                return

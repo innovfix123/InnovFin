@@ -118,10 +118,58 @@ def test_non_inv01_xml_via_aliases():
     assert f.value("hsn_sac") == "998314"
 
 
+# Real Anthropic (OIDAR) invoice text: the seller's GST reg is a non-standard "99…" that fails the
+# standard GSTIN shape, so the only standard-shape GSTIN on the page is OUR OWN bill-to one.
+_ANTHROPIC_OIDAR = (
+    "Invoice\nInvoice number\n5CR0HBCL-0004\nDate of issue\nJune 6, 2026\nDate due\nJune 6, 2026\n"
+    "VAT Registration India GST:\n9924USA29003OSI\n"
+    "Anthropic, PBC\n548 Market Street\nSan Francisco, California 94104\nUnited States\n"
+    "Bill to\nAyush Agarwal\nHSR Layout\nBangalore 560102\nTamil Nadu\nIndia\nmari@innovfix.in\n"
+    "IN GST 29AAICI1603A1Z3\n"
+    "$100.00 USD due June 6, 2026\n"
+    "Total\n$100.00\nAmount due\n$100.00 USD\n"
+    "[1] Tax to be paid on reverse charge basis\n"
+)
+
+
+def test_foreign_oidar_seller_not_captured_as_vendor():
+    # The seller (Anthropic OIDAR) GSTIN fails the standard shape, so a label-less grab would take
+    # our OWN bill-to GSTIN as the vendor — a self-issued invoice. It must land in buyer_gstin, and
+    # vendor_gstin must be blank so the invoice (correctly) routes to needs_review.
+    f = FieldExtractor().extract(_content(text=_ANTHROPIC_OIDAR))
+    assert f.value("buyer_gstin") == "29AAICI1603A1Z3"
+    assert f.value("vendor_gstin") is None
+    assert f.value("currency") == "USD"
+
+
+def test_currency_iso_code_from_text():
+    f = FieldExtractor().extract(_content(text="Max plan\nAmount due 49.00 USD"))
+    assert f.value("currency") == "USD"
+
+
+def test_currency_symbol_fallback_when_no_iso_code():
+    # No ISO token anywhere — only a symbol attached to the amount.
+    f = FieldExtractor().extract(_content(text="Total: $1,299.00"))
+    assert f.value("currency") == "USD"
+
+
+def test_distinct_seller_and_buyer_gstins_both_survive():
+    # A normal B2B invoice with DIFFERENT seller/buyer GSTINs: the self-ref drop must not fire.
+    f = FieldExtractor().extract(_content(
+        "Tax Invoice\nSeller GSTIN: 27AABCU9603R1ZM\n"
+        "Bill to\nInnovfix Private Limited\nGSTIN 29AAGCR1234M1Z5\n"
+        "Grand Total 11800\n"
+    ))
+    assert f.value("vendor_gstin") == "27AABCU9603R1ZM"
+    assert f.value("buyer_gstin") == "29AAGCR1234M1Z5"
+
+
 def test_missing_fields_absent():
     f = FieldExtractor().extract(_content(text="no invoice data here"))
     assert f.value("total") is None
     assert f.value("vendor_gstin") is None
+    assert f.value("buyer_gstin") is None
+    assert f.value("currency") is None
 
 
 def test_provenance_recorded():
