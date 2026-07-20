@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // pdf-parse (used by the Drive MCP's read_pdf) is a CommonJS package that loads pdf.js + reads files
+  // at runtime — keep it out of the server bundle so it's require()'d natively under `runtime=nodejs`.
+  serverExternalPackages: ["pdf-parse"],
   // Serve the OAuth discovery documents at their spec-mandated /.well-known/* paths. Next ignores
   // dot-folders under app/, so these rewrite to normal route handlers under /mcp/onlycare-tds/oauth/.
   // Clients try the path-inserted PRM first, then the root; and oauth-authorization-server, then
@@ -48,6 +51,13 @@ const nextConfig: NextConfig = {
       { source: "/.well-known/oauth-authorization-server/mcp/gstr2b-estimate", destination: "/mcp/gstr2b-estimate/oauth/authorization-server-metadata" },
       { source: "/.well-known/openid-configuration/mcp/gstr2b-estimate", destination: "/mcp/gstr2b-estimate/oauth/authorization-server-metadata" },
       { source: "/mcp/gstr2b-estimate/.well-known/oauth-authorization-server", destination: "/mcp/gstr2b-estimate/oauth/authorization-server-metadata" },
+      // Google Drive AS uses a PATH-BASED issuer (https://host/mcp/drive) too — metadata under
+      // path-inserted well-known locations, no collision with the others. Served at BOTH the RFC 8414
+      // path-insertion and the path-suffix location so any spec-compliant client finds it.
+      { source: "/.well-known/oauth-protected-resource/mcp/drive", destination: "/mcp/drive/oauth/protected-resource-metadata" },
+      { source: "/.well-known/oauth-authorization-server/mcp/drive", destination: "/mcp/drive/oauth/authorization-server-metadata" },
+      { source: "/.well-known/openid-configuration/mcp/drive", destination: "/mcp/drive/oauth/authorization-server-metadata" },
+      { source: "/mcp/drive/.well-known/oauth-authorization-server", destination: "/mcp/drive/oauth/authorization-server-metadata" },
     ];
   },
 };

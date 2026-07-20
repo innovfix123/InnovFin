@@ -39,6 +39,11 @@ yarn-debug.log*
 /Hima-TDS-mcp/logs/
 /Gateway-Settlements-mcp/logs/
 /invoice-intelligence/logs/
+/Drive-mcp/logs/
+
+# Google Drive MCP: service-account JSON key (read/write access to the finance folder) — NEVER commit.
+/secrets/
+*-sa.json
 
 # Local working directories: planning docs mixed with screenshots, raw workbooks, invoice PDFs,
 # and live API credentials pasted during build sessions. Never auto-add — review file by file
