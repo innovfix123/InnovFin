@@ -319,6 +319,138 @@ describe("answering from a file — the failure modes that return wrong data qui
     expect(out.availableTabs).toEqual(["Actuals"]);
   });
 
+  it("reads a photo/scan via Google conversion instead of answering 'open the link'", async () => {
+    process.env.DRIVE_MCP_WRITE = "1";
+    const out = await callTool(
+      "drive_read_file",
+      { fileId: "img1" },
+      {
+        getMetadata: async () => ({ id: "img1", name: "receipt.jpg", kind: "file", mimeType: "image/jpeg" }),
+        readViaGoogleConversion: async () => "VISTA PRINT  Total 1,299.00",
+      },
+    );
+    expect(out.extractedAs).toBe("google-ocr");
+    expect(out.content).toContain("1,299.00");
+    delete process.env.DRIVE_MCP_WRITE;
+  });
+
+  it("does not hand back a .docx/.xlsx as UTF-8-decoded ZIP bytes", async () => {
+    // Office mime types contain "openxmlformats", which the old loose /xml/ text test matched — so a
+    // Word file came back as "PK...word/_rels..." with no error, reading as a successful extraction.
+    process.env.DRIVE_MCP_WRITE = "1";
+    const out = await callTool(
+      "drive_read_file",
+      { fileId: "doc1" },
+      {
+        getMetadata: async () => ({
+          id: "doc1",
+          name: "Invoice.docx",
+          kind: "file",
+          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }),
+        downloadBytes: async () => Buffer.from("PKbinary-zip-bytes"),
+        readViaGoogleConversion: async () => "INVOICE  Aditya Sharma  1,25,000",
+      },
+    );
+    expect(out.content).not.toMatch(/^PK/);
+    expect(out.extractedAs).toBe("google-ocr");
+    expect(out.content).toContain("1,25,000");
+    delete process.env.DRIVE_MCP_WRITE;
+  });
+
+  it("still decodes genuinely textual uploads", async () => {
+    const out = await callTool(
+      "drive_read_file",
+      { fileId: "csv1" },
+      {
+        getMetadata: async () => ({ id: "csv1", name: "rows.csv", kind: "file", mimeType: "text/csv" }),
+        downloadBytes: async () => Buffer.from("a,b\n1,2"),
+      },
+    );
+    expect(out.extractedAs).toBe("text/csv");
+    expect(out.content).toBe("a,b\n1,2");
+  });
+
+  it("falls back to OCR for a scanned PDF, and flags the text as OCR-derived", async () => {
+    process.env.DRIVE_MCP_WRITE = "1";
+    const out = await callTool(
+      "drive_read_pdf",
+      { fileId: "scan1" },
+      {
+        getMetadata: async () => ({ id: "scan1", name: "scan.pdf", kind: "file", mimeType: "application/pdf" }),
+        downloadBytes: async () => Buffer.from("%PDF-1.4 not really a pdf"),
+        readViaGoogleConversion: async () => "HDFC BANK  Closing balance 4,10,220",
+      },
+    );
+    expect(out.extractedAs).toBe("google-ocr");
+    expect(out.content).toContain("4,10,220");
+    expect(out.note).toMatch(/verify figures/i); // never let OCR digits pass as read-off-the-page facts
+    delete process.env.DRIVE_MCP_WRITE;
+  });
+
+  it("says why a photo is unreadable when write is off, instead of failing with a raw 403", async () => {
+    delete process.env.DRIVE_MCP_WRITE; // conversion writes a temp copy, so it needs write scope
+    const out = await callTool(
+      "drive_read_file",
+      { fileId: "img2" },
+      {
+        getMetadata: async () => ({ id: "img2", name: "x.png", kind: "file", mimeType: "image/png", webViewLink: "https://drive/x" }),
+        readViaGoogleConversion: async () => {
+          throw new Error("should not be called without write scope");
+        },
+      },
+    );
+    expect(out.error).toBe("conversion_unavailable");
+    expect(out.webViewLink).toBe("https://drive/x");
+  });
+
+  it("deletes only the temp copy it named, and trashes rather than deletes anything else", async () => {
+    // This is the one code path that permanently deletes. If the id it holds ever pointed at a real
+    // file, that file would be gone with no Trash to recover from — so the guard is the whole safety
+    // story and must be asserted, not assumed.
+    vi.doUnmock("./drive-client"); // earlier cases stub it; this one must exercise the real thing
+    clearGoogleEnv();
+    process.env.GOOGLE_OAUTH_CLIENT_ID = "c";
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = "s";
+    process.env.GOOGLE_OAUTH_REFRESH_TOKEN = "r";
+    process.env.DRIVE_MCP_WRITE = "1";
+    vi.resetModules();
+
+    const root = process.env.DRIVE_FOLDER_ID ?? "rootfolder";
+    process.env.DRIVE_FOLDER_ID = root;
+
+    const run = async (copyName: string) => {
+      const calls: string[] = [];
+      vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? "GET";
+        const ok = (body: unknown) => ({ ok: true, status: 200, json: async () => body, text: async () => "", arrayBuffer: async () => new TextEncoder().encode("ocr text").buffer, clone() { return this; } }) as unknown as Response;
+        if (url.includes("oauth2.googleapis.com")) return ok({ access_token: "t", expires_in: 3599 });
+        calls.push(`${method} ${url.replace(/\?.*/, "")}`);
+        if (url.includes("/copy")) return ok({ id: "tmpcopy", name: copyName, mimeType: "application/vnd.google-apps.document", parents: [root] });
+        if (url.includes("/export")) return ok({});
+        if (url.includes("files/tmpcopy")) return ok({ id: "tmpcopy", name: copyName, parents: [root] });
+        // getMetadata(source) + the folder-tree listing
+        if (url.includes("files/src")) return ok({ id: "src", name: "receipt.jpg", mimeType: "image/jpeg", parents: [root] });
+        return ok({ files: [] });
+      });
+      const { readViaGoogleConversion } = await import("./drive-client");
+      await readViaGoogleConversion("src");
+      vi.unstubAllGlobals();
+      vi.resetModules();
+      return calls;
+    };
+
+    const named = await run(`_mcp-ocr-tmp-src`);
+    expect(named).toContain("DELETE https://www.googleapis.com/drive/v3/files/tmpcopy");
+
+    // Same flow, but the file coming back is not the one we created — must never be deleted.
+    const foreign = await run("someone-elses-quarterly-report.docx");
+    expect(foreign).not.toContain("DELETE https://www.googleapis.com/drive/v3/files/tmpcopy");
+    expect(foreign).toContain("PATCH https://www.googleapis.com/drive/v3/files/tmpcopy"); // trashed instead
+
+    delete process.env.DRIVE_MCP_WRITE;
+  });
+
   it("reports a capped search as capped, so the list is not read as every match", async () => {
     const out = await callTool(
       "drive_search_files",

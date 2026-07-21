@@ -31,6 +31,7 @@ import {
   renameFile,
   moveFile,
   trashFile,
+  readViaGoogleConversion,
   MIME,
   type DriveFile,
 } from "./drive-client";
@@ -38,6 +39,20 @@ import { writeEnabled } from "./env";
 
 /** Cap on how much extracted text any read_* tool returns, to keep responses sane. */
 const TEXT_CAP = 200_000;
+
+/**
+ * Types we cannot parse but Google can convert to a Doc: photos and scans (OCR runs during the copy)
+ * and Word files. Together these are ~17% of the connected folder — receipts, signed agreements — and
+ * without conversion every one of them is unanswerable.
+ */
+const CONVERTIBLE = /^image\/|wordprocessingml\.document$|^application\/msword$|^application\/rtf$/i;
+
+/**
+ * Uploads that really are text. Anchored on purpose: the old test was /^text\/|json|xml|csv/i, and
+ * every Office mime type contains "openxmlformats" — so .docx and .xlsx matched it and came back as
+ * a ZIP decoded as UTF-8 (screenfuls of "PK...word/_rels"), looking like a successful read.
+ */
+const TEXTUAL = /^text\/|^application\/(json|xml|csv|x-ndjson)$|\+json$|\+xml$/i;
 
 const jsonText = (obj: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(obj, null, 2) }] });
 
@@ -70,6 +85,40 @@ async function extractPdfText(buf: Buffer): Promise<{ text: string; pages: numbe
   const pdfParse = mod.default ?? (mod as unknown as (b: Buffer) => Promise<{ text: string; numpages: number }>);
   const d = await pdfParse(buf);
   return { text: d.text ?? "", pages: d.numpages ?? 0 };
+}
+
+/**
+ * A PDF with no text layer is a scan. Hand it to Google's OCR rather than answering "OCR needed" —
+ * scanned invoices and receipts are exactly the documents people ask about.
+ */
+async function ocrPdfFallback(meta: DriveFile, pages: number | undefined) {
+  if (!writeEnabled()) {
+    return jsonText({
+      file: brief(meta),
+      pages,
+      error: "ocr_unavailable",
+      content: "",
+      note: "No embedded text — this is a scanned PDF. OCR needs a temporary Google-Doc conversion, which requires DRIVE_MCP_WRITE on the server. Open the webViewLink instead.",
+      webViewLink: meta.webViewLink,
+    });
+  }
+  try {
+    const raw = await readViaGoogleConversion(meta.id);
+    if (!raw.trim()) {
+      return jsonText({ file: brief(meta), pages, extractedAs: "google-ocr", content: "", note: "Scanned PDF, and OCR found no legible text.", webViewLink: meta.webViewLink });
+    }
+    const { text, truncated } = capText(raw);
+    return jsonText({ file: brief(meta), pages, extractedAs: "google-ocr", truncated, content: text, note: "No embedded text layer — this text came from OCR of a scan, so verify figures against the image before relying on them." });
+  } catch (e) {
+    return jsonText({
+      file: brief(meta),
+      pages,
+      error: "ocr_failed",
+      content: "",
+      note: `Scanned PDF and OCR failed: ${e instanceof Error ? e.message : String(e)}`,
+      webViewLink: meta.webViewLink,
+    });
+  }
 }
 
 /**
@@ -140,7 +189,7 @@ export function registerDriveTools(server: McpServer): McpServer {
     {
       title: "Read a file's content as text",
       description:
-        "Read the content of a single file (by id) as text, fetched live from Drive. Google Docs → plain text; Google Sheets → CSV (use drive_read_sheet for multi-tab structure); Google Slides → text; plain-text/CSV/JSON uploads → their text; PDFs → routed to text extraction (or use drive_read_pdf). Binary/office files (.xlsx/.docx/images) are NOT decoded here — use drive_read_sheet for spreadsheets, drive_read_pdf for PDFs. Google-native docs over 10 MB can't be exported by the API (Google limit); the tool then returns the webViewLink instead. Input: fileId (from drive_list_files/drive_search_files).",
+        "Read the content of a single file (by id) as text, fetched live from Drive. Google Docs → plain text; Google Sheets → CSV (use drive_read_sheet for multi-tab structure); Google Slides → text; plain-text/CSV/JSON uploads → their text; PDFs → text extraction, falling back to OCR for scans (or use drive_read_pdf). IMAGES (photo/scan of a receipt, invoice, cheque) and WORD files (.docx/.doc/.rtf) ARE readable here — Google converts and OCRs them, and the result comes back with extractedAs='google-ocr'; treat OCR'd figures as needing a sanity check. Spreadsheets are the one thing to send elsewhere: use drive_read_sheet. Google-native docs over 10 MB can't be exported by the API (Google limit); the tool then returns the webViewLink instead. Input: fileId (from drive_list_files/drive_search_files).",
       inputSchema: { fileId: z.string().min(1).describe("the file id to read") },
     },
     async ({ fileId }) => {
@@ -166,17 +215,50 @@ export function registerDriveTools(server: McpServer): McpServer {
       // PDF → extract text.
       if (meta.mimeType === MIME.PDF) {
         const buf = await downloadBytes(fileId);
+        let pages: number | undefined;
         try {
-          const { text, pages } = await extractPdfText(buf);
-          if (!text.trim()) return jsonText({ file: brief(meta), pages, note: "No embedded text — likely a scanned/image PDF; OCR needed.", content: "" });
-          const { text: t, truncated } = capText(text);
-          return jsonText({ file: brief(meta), extractedAs: "pdf-text", pages, truncated, content: t });
+          const out = await extractPdfText(buf);
+          pages = out.pages;
+          if (out.text.trim()) {
+            const { text: t, truncated } = capText(out.text);
+            return jsonText({ file: brief(meta), extractedAs: "pdf-text", pages, truncated, content: t });
+          }
         } catch {
-          return jsonText({ file: brief(meta), note: "PDF could not be parsed (corrupt or scanned). Open it directly.", webViewLink: meta.webViewLink });
+          /* fall through to OCR — a scan often fails to parse rather than parsing to empty */
+        }
+        return ocrPdfFallback(meta, pages);
+      }
+      // Photos/scans and Word files: Google can read these even though we can't parse them. Let it —
+      // otherwise a receipt photo or a signed .docx is simply unanswerable. Checked BEFORE the
+      // text branch: Office mime types literally contain "openxmlformats".
+      if (CONVERTIBLE.test(meta.mimeType)) {
+        if (!writeEnabled()) {
+          return jsonText({
+            file: brief(meta),
+            error: "conversion_unavailable",
+            note: `Reading ${meta.mimeType} needs a temporary Google-Doc conversion, which requires DRIVE_MCP_WRITE to be enabled on the server. Open the webViewLink instead.`,
+            webViewLink: meta.webViewLink,
+          });
+        }
+        try {
+          const raw = await readViaGoogleConversion(fileId);
+          if (!raw.trim()) {
+            return jsonText({ file: brief(meta), extractedAs: "google-ocr", content: "", note: "Google found no readable text in this file (blank, or an image with no legible text).", webViewLink: meta.webViewLink });
+          }
+          const { text, truncated } = capText(raw);
+          return jsonText({ file: brief(meta), extractedAs: "google-ocr", truncated, content: text });
+        } catch (e) {
+          return jsonText({
+            file: brief(meta),
+            error: "conversion_failed",
+            note: `Google could not convert this ${meta.mimeType}: ${e instanceof Error ? e.message : String(e)}`,
+            webViewLink: meta.webViewLink,
+          });
         }
       }
-      // Plain-text-ish uploads → decode as UTF-8.
-      if (/^text\/|json|xml|csv/i.test(meta.mimeType)) {
+      // Genuinely text-ish uploads → decode as UTF-8. Anchored, because a loose /xml/ test matches
+      // "open**xml**formats" and every .docx/.xlsx was being handed back as decoded ZIP bytes.
+      if (TEXTUAL.test(meta.mimeType)) {
         const buf = await downloadBytes(fileId);
         const { text, truncated } = capText(buf.toString("utf8"));
         return jsonText({ file: brief(meta), extractedAs: meta.mimeType, truncated, content: text });
@@ -264,7 +346,7 @@ export function registerDriveTools(server: McpServer): McpServer {
     {
       title: "Read a PDF's text",
       description:
-        "Extract the text of a PDF (by id), live from Drive. Returns the embedded text layer and page count — ideal for invoices, bank statements, agreements etc. that were saved as digital PDFs. If the PDF is a scanned image with no text layer, it returns a note that OCR is required (no text). Input: fileId. For non-PDF files use drive_read_file / drive_read_sheet.",
+        "Extract the text of a PDF (by id), live from Drive. Returns the embedded text layer and page count — ideal for invoices, bank statements, agreements etc. that were saved as digital PDFs. If the PDF is a SCAN with no text layer, it automatically falls back to Google OCR and returns that text with extractedAs='google-ocr' — figures read by OCR should be sanity-checked against the image before being relied on. Input: fileId. For non-PDF files use drive_read_file / drive_read_sheet.",
       inputSchema: { fileId: z.string().min(1).describe("the PDF file id") },
     },
     async ({ fileId }) => {
@@ -273,15 +355,19 @@ export function registerDriveTools(server: McpServer): McpServer {
         return jsonText({ file: brief(meta), error: "not_a_pdf", note: `${meta.mimeType} is not a PDF — use drive_read_file or drive_read_sheet.` });
       }
       const buf = await downloadBytes(fileId);
+      let pages: number | undefined;
       try {
-        const { text, pages } = await extractPdfText(buf);
-        if (!text.trim()) {
-          return jsonText({ file: brief(meta), pages, hasText: false, note: "No embedded text layer — this looks like a scanned/image PDF; OCR is required.", content: "" });
+        const out = await extractPdfText(buf);
+        pages = out.pages;
+        if (out.text.trim()) {
+          const { text: t, truncated } = capText(out.text);
+          return jsonText({ file: brief(meta), pages, hasText: true, truncated, content: t });
         }
-        const { text: t, truncated } = capText(text);
-        return jsonText({ file: brief(meta), pages, hasText: true, truncated, content: t });
+        // No text layer → a scan. Hand it to OCR rather than reporting "OCR is required".
+        return ocrPdfFallback(meta, pages);
       } catch {
-        return jsonText({ file: brief(meta), error: "parse_failed", note: "The PDF could not be parsed (corrupt or unsupported). Open it directly.", webViewLink: meta.webViewLink });
+        // A scan often fails to parse outright rather than parsing to empty — same fallback.
+        return ocrPdfFallback(meta, pages);
       }
     },
   );

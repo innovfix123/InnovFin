@@ -408,6 +408,52 @@ export async function moveFile(fileId: string, targetFolderId: string): Promise<
   return out;
 }
 
+/** Marks the throwaway copies made by readViaGoogleConversion, so cleanup can never target real data. */
+const OCR_TEMP_PREFIX = "_mcp-ocr-tmp-";
+
+/**
+ * Read a file Google can convert but we cannot parse — a photo/scan (OCR), or a .docx/.doc — by making
+ * a temporary Google-Doc copy, exporting its text, and removing the copy.
+ *
+ * Roughly a sixth of the connected folder is images and Word files, plus an unknown share of the PDFs
+ * are scans with no text layer. Without this they are simply unanswerable: "open the link" is not an
+ * answer when someone asks what a receipt says. Drive itself does the OCR during the copy — no OCR
+ * dependency, no bytes leaving Google.
+ *
+ * Needs write scope (a copy is created), so it is only reachable when DRIVE_MCP_WRITE is on; the caller
+ * surfaces a clear message otherwise rather than a raw 403. The copy is deleted in a finally block, and
+ * deletion is guarded on the name we just gave it so a bug here can never reach the user's own files.
+ */
+export async function readViaGoogleConversion(fileId: string, opts?: { ocrLanguage?: string }): Promise<string> {
+  await getMetadata(fileId); // enforce scope on the source
+  const name = `${OCR_TEMP_PREFIX}${fileId}`;
+  const lang = opts?.ocrLanguage?.trim() || "en";
+  const copy = await mutateJson(
+    `/files/${encodeURIComponent(fileId)}/copy?ocrLanguage=${encodeURIComponent(lang)}&${RETURN_FIELDS}`,
+    "POST",
+    { name, mimeType: MIME.DOC, parents: [rootFolderId()] },
+  );
+  try {
+    const buf = await exportFile(copy.id, "text/plain");
+    return buf.toString("utf8");
+  } finally {
+    // Permanent, not Trash: these are our own artefacts, created a moment ago, and a read-heavy session
+    // would otherwise leave hundreds of them in the user's Trash. Guarded on the exact name we set —
+    // if that doesn't match, leave the file alone and fall back to trashing.
+    try {
+      const check = await driveJson<Record<string, unknown>>(`/files/${encodeURIComponent(copy.id)}?fields=id,name&supportsAllDrives=true`);
+      if (check.name === name) {
+        await driveFetch(`/files/${encodeURIComponent(copy.id)}?supportsAllDrives=true`, { method: "DELETE" });
+      } else {
+        await mutateJson(`/files/${encodeURIComponent(copy.id)}?${RETURN_FIELDS}`, "PATCH", { trashed: true });
+      }
+    } catch {
+      /* cleanup is best-effort — never mask the read's own result or error */
+    }
+    invalidateFolderCache();
+  }
+}
+
 /** Move a file/folder to Trash — recoverable, never a permanent delete. */
 export async function trashFile(fileId: string): Promise<DriveFile> {
   await getMetadata(fileId); // enforce scope
