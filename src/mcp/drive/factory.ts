@@ -4,15 +4,15 @@
  * These tools are a LIVE BRIDGE to one shared Google Drive folder (DRIVE_FOLDER_ID). Google Drive is
  * the Single Source of Truth: every tool reads live from Drive on each call, so a new upload, an edit,
  * a rename, a move, or a delete is reflected immediately with no synchronization step. Nothing is
- * persisted and no file bytes are stored — only a 60s in-memory cache of the folder-tree's folder IDs
- * (pure metadata) to keep search cheap. File CONTENT is always fetched fresh from Drive.
+ * persisted and no file bytes are stored — only a short-lived in-memory cache of the folder-tree's
+ * SHAPE (pure metadata) to keep search cheap. File CONTENT is always fetched fresh from Drive.
  *
  * There is deliberately NO standalone /mcp/drive endpoint: these tools are MOUNTED INTO the
  * gstr2b-estimate MCP (src/mcp/gstr2b-estimate/factory.ts) so finance has one connection that can both
  * compute ITC and read the source documents. Tool names are prefixed `drive_` so they never collide
  * with the host server's own tools and are unambiguous to the model.
  *
- * Six read tools (always) + six write tools (only when DRIVE_MCP_WRITE is enabled).
+ * Seven read tools (always) + six write tools (only when DRIVE_MCP_WRITE is enabled).
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -36,6 +36,7 @@ import {
   type DriveFile,
 } from "./drive-client";
 import { writeEnabled } from "./env";
+import { assertArchiveSize, extractEntry, listEntries, ZipError } from "./zip";
 
 /** Cap on how much extracted text any read_* tool returns, to keep responses sane. */
 const TEXT_CAP = 200_000;
@@ -382,6 +383,98 @@ export function registerDriveTools(server: McpServer): McpServer {
     },
   );
 
+  // ------------------------------------------------------------------------------------------------
+  server.registerTool(
+    "drive_read_archive",
+    {
+      title: "Look inside a .zip archive",
+      description:
+        "Open a ZIP archive stored in the connected folder. Without `entry`, lists what is inside (name, size, whether it is a folder, whether it is password-protected). With `entry`, extracts that one file and returns its text — PDFs get text extraction, spreadsheets come back as CSV per tab, text/CSV/JSON are decoded. Invoice sets are often archived (e.g. a month's purchase invoices as one .zip), so this is how you answer a question whose document only exists inside an archive. Scanned/image content inside an archive is NOT OCR'd — OCR needs the file to be in Drive itself. Password-protected entries, ZIP64 archives and unusual compression methods are reported, never guessed at. .rar/.7z are not ZIPs and are not supported.",
+      inputSchema: {
+        fileId: z.string().min(1).describe("the .zip file's id in Drive"),
+        entry: z.string().optional().describe("exact entry name from the listing; omit to list the archive"),
+        maxRows: z.number().int().min(1).max(20000).optional().describe("row cap per tab when the entry is a spreadsheet (default 500)"),
+      },
+    },
+    async ({ fileId, entry, maxRows }) => {
+      const meta = await getMetadata(fileId);
+      if (/x-rar|rar|7z/i.test(meta.mimeType) || /\.(rar|7z)$/i.test(meta.name)) {
+        return jsonText({ file: brief(meta), error: "not_a_zip", note: `${meta.name} is a RAR/7z archive, which this tool cannot open. Only .zip is supported.`, webViewLink: meta.webViewLink });
+      }
+      try {
+        assertArchiveSize(meta.size ?? 0);
+        const buf = await downloadBytes(fileId);
+        const entries = listEntries(buf);
+
+        if (!entry) {
+          return jsonText({
+            file: brief(meta),
+            entryCount: entries.length,
+            entries: entries.map((e) => ({
+              name: e.name,
+              bytes: e.uncompressedSize,
+              isDirectory: e.isDirectory,
+              ...(e.encrypted ? { encrypted: true } : {}),
+              ...(e.method === null ? { unsupportedCompression: true } : {}),
+            })),
+            next: "Call again with `entry` set to one of these names to read it.",
+          });
+        }
+
+        const found = entries.find((e) => e.name === entry);
+        if (!found) {
+          return jsonText({ file: brief(meta), error: "entry_not_found", note: `No entry named "${entry}" in this archive.`, availableEntries: entries.filter((e) => !e.isDirectory).map((e) => e.name).slice(0, 200) });
+        }
+
+        const bytes = extractEntry(buf, found);
+        const lower = found.name.toLowerCase();
+
+        if (lower.endsWith(".pdf")) {
+          const { text, pages } = await extractPdfText(bytes);
+          if (!text.trim()) {
+            return jsonText({ file: brief(meta), entry: found.name, pages, content: "", note: "This PDF inside the archive has no text layer (a scan). OCR only works on files stored in Drive itself — extract it to Drive to read it." });
+          }
+          const c = capText(text);
+          return jsonText({ file: brief(meta), entry: found.name, extractedAs: "pdf-text", pages, truncated: c.truncated, content: c.text });
+        }
+
+        if (/\.(xlsx|xlsm|xls|csv)$/i.test(lower)) {
+          try {
+            const wb = XLSX.read(bytes, { type: "buffer" });
+            const cap = maxRows ?? 500;
+            const tabs = wb.SheetNames.map((name) => {
+              const rows = XLSX.utils.sheet_to_csv(wb.Sheets[name]).split("\n");
+              return rows.length > cap
+                ? { name, rowCount: cap, truncated: true, csv: rows.slice(0, cap).join("\n") }
+                : { name, rowCount: rows.length, truncated: false, csv: rows.join("\n") };
+            });
+            return jsonText({ file: brief(meta), entry: found.name, extractedAs: "spreadsheet", allTabs: wb.SheetNames, tabs });
+          } catch {
+            /* not really a workbook — fall through to the text attempt */
+          }
+        }
+
+        if (/\.(txt|csv|json|xml|md|log|htm|html)$/i.test(lower)) {
+          const c = capText(bytes.toString("utf8"));
+          return jsonText({ file: brief(meta), entry: found.name, extractedAs: "text", truncated: c.truncated, content: c.text });
+        }
+
+        return jsonText({
+          file: brief(meta),
+          entry: found.name,
+          bytes: bytes.length,
+          error: "entry_not_text",
+          note: `"${found.name}" is not a text, PDF or spreadsheet entry, so there is nothing to extract as text. Images inside an archive cannot be OCR'd — copy the file into Drive to read it.`,
+        });
+      } catch (e) {
+        if (e instanceof ZipError) {
+          return jsonText({ file: brief(meta), error: "zip_error", note: e.message, webViewLink: meta.webViewLink });
+        }
+        throw e;
+      }
+    },
+  );
+
   // ================================================================================================
   // WRITE TOOLS (Phase 3) — registered ONLY when DRIVE_MCP_WRITE is enabled AND the SA is shared as
   // Editor. Read-only deployments never even expose these. No permanent delete: drive_trash_file is
@@ -485,6 +578,7 @@ export const DRIVE_READ_TOOLS = [
   "drive_read_file",
   "drive_read_sheet",
   "drive_read_pdf",
+  "drive_read_archive",
 ] as const;
 /** Write tools — registered only when DRIVE_MCP_WRITE is enabled. */
 export const DRIVE_WRITE_TOOLS = [

@@ -3,7 +3,7 @@
  *  1. USER-OAUTH outbound auth (the mode we run on): refresh_token grant, caching, partial-config guard.
  *  2. SERVICE-ACCOUNT outbound auth (fallback): the RS256 JWT-bearer assertion is well-formed, correctly
  *     signed and carries the right claims; scope widens only when DRIVE_MCP_WRITE is on.
- *  3. Tool registration: 6 read tools, +6 write tools behind the flag, all mounted on a host server
+ *  3. Tool registration: 7 read tools, +6 write tools behind the flag, all mounted on a host server
  *     under the drive_ prefix without collisions — including onto the real gstr2b-estimate server.
  *
  * No network: the token exchange fetch is stubbed and the SA assertion it receives is cryptographically
@@ -190,22 +190,22 @@ describe("tool registration (drive_ prefix + write gating)", () => {
     vi.resetModules();
   });
 
-  it("exposes only the 6 read tools when write is disabled", async () => {
+  it("exposes only the 7 read tools when write is disabled", async () => {
     delete process.env.DRIVE_MCP_WRITE;
     vi.resetModules();
     const { activeDriveTools, DRIVE_WRITE_TOOLS, registerDriveTools } = await import("./factory");
     const tools = activeDriveTools();
-    expect(tools).toHaveLength(6);
+    expect(tools).toHaveLength(7);
     for (const w of DRIVE_WRITE_TOOLS) expect(tools).not.toContain(w);
     expect(() => registerDriveTools(host())).not.toThrow();
   });
 
-  it("adds the 6 write tools when DRIVE_MCP_WRITE is enabled, and all 12 register cleanly", async () => {
+  it("adds the 6 write tools when DRIVE_MCP_WRITE is enabled, and all 13 register cleanly", async () => {
     process.env.DRIVE_MCP_WRITE = "1";
     vi.resetModules();
     const { activeDriveTools, registerDriveTools } = await import("./factory");
     const tools = activeDriveTools();
-    expect(tools).toHaveLength(12);
+    expect(tools).toHaveLength(13);
     expect(tools).toEqual(
       expect.arrayContaining([
         "drive_create_folder",
@@ -216,7 +216,7 @@ describe("tool registration (drive_ prefix + write gating)", () => {
         "drive_trash_file",
       ]),
     );
-    expect(() => registerDriveTools(host())).not.toThrow(); // 12 names, no collision
+    expect(() => registerDriveTools(host())).not.toThrow(); // 13 names, no collision
   });
 
   it("every tool name is drive_-prefixed, so it cannot collide with a host server's tools", async () => {
@@ -232,7 +232,7 @@ describe("tool registration (drive_ prefix + write gating)", () => {
     const { buildGstr2bEstimateServer, gstr2bEstimateTools, ITC_TOOLS } = await import("../gstr2b-estimate/factory");
     expect(() => buildGstr2bEstimateServer()).not.toThrow();
     const all = gstr2bEstimateTools();
-    expect(all).toHaveLength(ITC_TOOLS.length + 12);
+    expect(all).toHaveLength(ITC_TOOLS.length + 13);
     expect(all).toEqual(expect.arrayContaining([...ITC_TOOLS, "drive_list_files", "drive_trash_file"]));
     expect(new Set(all).size).toBe(all.length); // no duplicate tool names on the merged server
   });
@@ -511,6 +511,58 @@ describe("answering from a file — the failure modes that return wrong data qui
     );
     expect(out.capped).toBe(true);
     expect(out.note).toMatch(/cut off/i);
+  });
+
+  it("opens a .zip and reads an entry out of it", async () => {
+    // 291 archives sit in the connected folder and real invoice sets are stored that way, so an
+    // unreadable archive is an unanswerable question. A .xlsx IS a zip, which gives us a genuine
+    // archive to parse rather than a hand-rolled fixture.
+    const XLSX = await import("xlsx");
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["total"], [4816]]), "Sheet1");
+    const zip = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+    const stub = {
+      getMetadata: async () => ({ id: "z", name: "invoices.zip", kind: "file", mimeType: "application/zip", size: zip.length }),
+      downloadBytes: async () => zip,
+    };
+
+    const listing = await callTool("drive_read_archive", { fileId: "z" }, stub);
+    expect(listing.entryCount).toBeGreaterThan(0);
+    const names: string[] = listing.entries.map((e: { name: string }) => e.name);
+    expect(names).toContain("xl/workbook.xml");
+
+    const read = await callTool("drive_read_archive", { fileId: "z", entry: "xl/workbook.xml" }, stub);
+    expect(read.extractedAs).toBe("text");
+    expect(read.content).toContain("<workbook");
+
+    const missing = await callTool("drive_read_archive", { fileId: "z", entry: "nope.pdf" }, stub);
+    expect(missing.error).toBe("entry_not_found");
+    expect(missing.availableEntries.length).toBeGreaterThan(0);
+  });
+
+  it("refuses a non-ZIP archive by name instead of returning nonsense", async () => {
+    const out = await callTool(
+      "drive_read_archive",
+      { fileId: "r" },
+      {
+        getMetadata: async () => ({ id: "r", name: "invoices.rar", kind: "file", mimeType: "application/x-rar-compressed", size: 10 }),
+        downloadBytes: async () => Buffer.from("Rar!"),
+      },
+    );
+    expect(out.error).toBe("not_a_zip");
+  });
+
+  it("surfaces a corrupt archive as a stated reason, not a stack trace", async () => {
+    const out = await callTool(
+      "drive_read_archive",
+      { fileId: "bad" },
+      {
+        getMetadata: async () => ({ id: "bad", name: "broken.zip", kind: "file", mimeType: "application/zip", size: 20 }),
+        downloadBytes: async () => Buffer.from("this is definitely not a zip"),
+      },
+    );
+    expect(out.error).toBe("zip_error");
+    expect(out.note).toMatch(/not a zip archive/i);
   });
 
   it("reports a capped search as capped, so the list is not read as every match", async () => {
