@@ -48,9 +48,41 @@ export function readWorkbook(file?: string, fileBase64?: string): Buffer {
 
 const json = (v: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(v, null, 2) }] });
 
+/**
+ * Told to the MCP client at initialize. Without this the two tool families read as unrelated: a caller
+ * whose question isn't answered by the ITC registry stops there and reports "not found", even though the
+ * document is sitting in the connected Drive folder. This makes the fallback explicit and, just as
+ * importantly, keeps the two sources from being silently blended in an answer.
+ */
+const SERVER_INSTRUCTIONS = `This server exposes two different sources. Use both, in this order.
+
+1. itc_* — the Estimated GSTR-2B / ITC registry (vendor invoices captured by invoice-intelligence).
+   Use for: expected ITC for a month, per-vendor ITC, invoice lookups, reconciliation against the
+   portal's filed 2B. This is the authority for anything ITC/GSTR-2B.
+
+2. drive_* — the connected Google Drive finance folder (live, read-through). It holds what the
+   registry does not: bank statements, expense workings, master data, agreements, rate charts,
+   reimbursements, prior-year files — organised in subfolders such as 2025-26 / 2026-27 /
+   Company Master Data / Directors Master Data / Reimbursements Drive.
+
+FALLBACK RULE — do not stop at "not found". If a question is not answered by the itc_* tools, or asks
+for something outside ITC entirely (a bank statement, an expense sheet, a signed document, a figure
+from a working), search the Drive folder before answering: drive_search_files for the term, or
+drive_latest_documents / drive_list_files to browse, then read the hit with drive_read_file,
+drive_read_sheet (spreadsheets, per-tab CSV) or drive_read_pdf (PDF text). Answer from the file's
+actual contents — quote the numbers you read, and name the file you took them from.
+
+ATTRIBUTION — always say which source a figure came from: the ITC registry, or a named Drive file.
+Never present a Drive figure as if it were filed/portal GSTR-2B data, and never merge the two into one
+number without saying so. If they disagree, report both and flag the difference rather than picking one.
+
+SCOPE — drive_* only ever sees the one configured folder and its subfolders; anything outside it is
+refused by design. Write tools (create/upload/update/rename/move/trash) appear only when the operator
+has enabled them; there is no permanent delete, trash is recoverable.`;
+
 /** Fresh, fully-wired Estimated GSTR-2B MCP server. Cheap to build — one per stdio process or HTTP request. */
 export function buildGstr2bEstimateServer(): McpServer {
-  const server = new McpServer({ name: "gstr2b-estimate", version: "1.0.0" });
+  const server = new McpServer({ name: "gstr2b-estimate", version: "1.0.0" }, { instructions: SERVER_INSTRUCTIONS });
 
   server.registerTool("itc_estimate", {
     title: "Estimated GSTR-2B — expected ITC for a month",
@@ -63,7 +95,9 @@ export function buildGstr2bEstimateServer(): McpServer {
       "GSTIN, missing tax breakup, no invoice date (⚠ rules pending Shoyab) — sits in a separate review bucket " +
       "with reasons, never auto-included. Optional received_to=YYYY-MM-DD gives the point-in-time view finance " +
       "pulls early in the month: 'expected ITC for June as of 3 July' → period=2026-06, received_to=2026-07-03. " +
-      "Ask for 'estimated 2B', 'expected ITC', 'ITC estimate as of the Nth' → this tool.\n\n" +
+      "Ask for 'estimated 2B', 'expected ITC', 'ITC estimate as of the Nth' → this tool. If what's asked for " +
+      "isn't in this registry (a bank statement, an expense working, a master-data or prior-year file), don't " +
+      "stop at 'not found' — search the connected Drive folder with drive_search_files and read the hit.\n\n" +
       "PRESENTING THE RESULT: the `report` field is the finished markdown breakdown — ITC by tax head, " +
       "supplier-wise, charge-wise, the review bucket with exclusion reasons, and the pending queue. SHOW IT TO " +
       "THE USER AS-IS (verbatim, tables intact). Do not re-format it, re-order it, summarise it into prose, or " +

@@ -234,4 +234,18 @@ describe("tool registration (drive_ prefix + write gating)", () => {
     expect(all).toEqual(expect.arrayContaining([...ITC_TOOLS, "drive_list_files", "drive_trash_file"]));
     expect(new Set(all).size).toBe(all.length); // no duplicate tool names on the merged server
   });
+
+  it("tells the client to fall back to Drive when the ITC registry has no answer", async () => {
+    // Without this the two tool families read as unrelated and a caller reports "not found" for a
+    // document that is sitting in the connected folder. The client only ever sees these instructions
+    // at initialize, so losing them is silent — assert the parts that carry the behaviour.
+    vi.resetModules();
+    const { buildGstr2bEstimateServer } = await import("../gstr2b-estimate/factory");
+    const instructions = (buildGstr2bEstimateServer().server as unknown as { _instructions?: string })._instructions;
+    expect(instructions).toBeTruthy();
+    expect(instructions).toMatch(/do not stop at "not found"/i);
+    expect(instructions).toMatch(/drive_search_files/);
+    expect(instructions).toMatch(/itc_/);
+    expect(instructions).toMatch(/which source a figure came from/i); // attribution, so the two never blend
+  });
 });
