@@ -12,6 +12,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createVerify, generateKeyPairSync } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 // A throwaway RSA keypair so we can both sign (via the module) and verify (here) the assertion.
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -247,5 +249,83 @@ describe("tool registration (drive_ prefix + write gating)", () => {
     expect(instructions).toMatch(/drive_search_files/);
     expect(instructions).toMatch(/itc_/);
     expect(instructions).toMatch(/which source a figure came from/i); // attribution, so the two never blend
+  });
+});
+
+describe("answering from a file — the failure modes that return wrong data quietly", () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+  });
+
+  /** Call a tool the way a real client does — over the protocol — with drive-client stubbed. */
+  async function callTool(name: string, args: Record<string, unknown>, stub: Record<string, unknown>) {
+    vi.resetModules();
+    const actual = await vi.importActual<typeof import("./drive-client")>("./drive-client");
+    vi.doMock("./drive-client", () => ({ ...actual, ...stub }));
+    const { registerDriveTools } = await import("./factory");
+    const server = registerDriveTools(new McpServer({ name: "t", version: "0.0.0" }));
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "t", version: "0.0.0" }, { capabilities: {} });
+    await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+    const res = (await client.callTool({ name, arguments: args })) as { content: { text: string }[] };
+    return JSON.parse(res.content[0].text);
+  }
+
+  it("reads EVERY tab of a Google Sheet, not the first one wearing the requested tab's name", async () => {
+    // CSV export returns only tab 1. The old code labelled it with whatever tab was asked for, so a
+    // request for "Summary" came back as tab 1's rows called "Summary" — wrong numbers, no error.
+    const XLSX = await import("xlsx");
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["a"], [1]]), "First");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["total"], [42]]), "Summary");
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+    const exported: string[] = [];
+    const out = await callTool(
+      "drive_read_sheet",
+      { fileId: "sheet1", sheet: "Summary" },
+      {
+        getMetadata: async () => ({ id: "sheet1", name: "S", kind: "file", mimeType: "application/vnd.google-apps.spreadsheet" }),
+        exportFile: async (_id: string, mime: string) => {
+          exported.push(mime);
+          return buf;
+        },
+      },
+    );
+
+    expect(exported).toEqual(["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]);
+    expect(exported).not.toContain("text/csv");
+    expect(out.allTabs).toEqual(["First", "Summary"]);
+    expect(out.tabs).toHaveLength(1);
+    expect(out.tabs[0].name).toBe("Summary");
+    expect(out.tabs[0].csv).toContain("42"); // the requested tab's data, not tab 1's
+  });
+
+  it("surfaces a wrong tab name as an error with the real tab list, instead of guessing", async () => {
+    const XLSX = await import("xlsx");
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["a"], [1]]), "Actuals");
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+    const out = await callTool(
+      "drive_read_sheet",
+      { fileId: "x", sheet: "Nope" },
+      {
+        getMetadata: async () => ({ id: "x", name: "S", kind: "file", mimeType: "application/vnd.ms-excel" }),
+        downloadBytes: async () => buf,
+      },
+    );
+    expect(out.error).toBe("sheet_not_found");
+    expect(out.availableTabs).toEqual(["Actuals"]);
+  });
+
+  it("reports a capped search as capped, so the list is not read as every match", async () => {
+    const out = await callTool(
+      "drive_search_files",
+      { query: "bank statement" },
+      { searchSubtree: async () => ({ files: [{ id: "1", name: "x", kind: "file", mimeType: "text/plain" }], capped: true }) },
+    );
+    expect(out.capped).toBe(true);
+    expect(out.note).toMatch(/narrow the query/i);
   });
 });

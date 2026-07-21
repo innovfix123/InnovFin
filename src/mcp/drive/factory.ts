@@ -102,12 +102,20 @@ export function registerDriveTools(server: McpServer): McpServer {
     {
       title: "Search files by name or content",
       description:
-        "Search the connected Google Drive folder (and all its subfolders) by file name AND full-text content. Reads live from Drive. Input: query (a word or phrase, e.g. 'Cashfree invoice May' or a vendor/GSTIN). Returns matching files with id, name, mimeType, size, modifiedTime, owner and webViewLink. Use drive_read_file / drive_read_sheet / drive_read_pdf on a returned id to get the actual content. Full-text matching is Google's own Drive index (covers document bodies for supported types).",
+        "Search the connected Google Drive folder (and all its subfolders) by file name AND full-text content. Reads live from Drive. Input: query (a word or phrase, e.g. 'Cashfree invoice May' or a vendor/GSTIN). Results are ordered filename-matches first, then newest-first, so the best candidates lead. `capped: true` means there were more matches than the cap — narrow the query instead of treating the list as complete. Returns id, name, mimeType, size, modifiedTime, owner and webViewLink; use drive_read_file / drive_read_sheet / drive_read_pdf on an id to get the actual content. Full-text matching is Google's own Drive index (covers document bodies for supported types).",
       inputSchema: { query: z.string().min(1).describe("name or content to search for within the folder") },
     },
     async ({ query }) => {
-      const files = await searchSubtree(query);
-      return jsonText({ query, count: files.length, files: files.map(brief) });
+      const { files, capped } = await searchSubtree(query);
+      return jsonText({
+        query,
+        count: files.length,
+        capped,
+        ...(capped
+          ? { note: `More than ${files.length} files match — this is the capped, newest-first list with filename matches first. Narrow the query rather than assuming this is every match.` }
+          : {}),
+        files: files.map(brief),
+      });
     },
   );
 
@@ -188,7 +196,7 @@ export function registerDriveTools(server: McpServer): McpServer {
     {
       title: "Read a spreadsheet (Google Sheet or Excel)",
       description:
-        "Read a spreadsheet's tabs as CSV, live from Drive. Works for Google Sheets (exported to CSV) and uploaded Excel files (.xlsx/.xls, parsed locally). Input: fileId, optional sheet (tab name — omit to get all tabs), optional maxRows (default 500 per tab). Returns per-tab { name, rowCount, csv }. For a Google Sheet only the FIRST tab is available via CSV export; for .xlsx every tab is available. Good for reading a working, a payout register, a reconciliation, etc.",
+        "Read a spreadsheet's tabs as CSV, live from Drive. Works for Google Sheets and uploaded Excel files (.xlsx/.xls) alike — EVERY tab is available for both. Input: fileId, optional sheet (tab name — omit to get all tabs), optional maxRows (default 500 per tab). Returns allTabs (every tab name in the workbook) plus per-tab { name, rowCount, csv, truncated }. If truncated is true you are seeing only the first maxRows rows — re-read with a higher maxRows before drawing a conclusion from a total. Asking for a tab that doesn't exist returns error=sheet_not_found with availableTabs. Good for a working, a payout register, a bank statement, a reconciliation.",
       inputSchema: {
         fileId: z.string().min(1).describe("the spreadsheet file id"),
         sheet: z.string().optional().describe("a specific tab name; omit for all tabs (.xlsx) / the sheet (Google Sheet)"),
@@ -203,15 +211,30 @@ export function registerDriveTools(server: McpServer): McpServer {
         return rows.length > cap ? { csv: rows.slice(0, cap).join("\n"), rowCount: cap, truncated: true } : { csv, rowCount: rows.length, truncated: false };
       };
 
-      // Google Sheet → CSV export (first sheet only, per the export API).
+      // Google Sheet → export as XLSX, not CSV. CSV only ever returns the FIRST tab, so a request for
+      // any other tab used to come back as tab 1's rows wearing the requested tab's name — silently
+      // wrong data, which is worse than an error. XLSX carries every tab, and then falls through to the
+      // same parser as an uploaded workbook. CSV stays as the fallback for sheets too large to export.
+      let buf: Buffer;
       if (meta.mimeType === MIME.SHEET) {
-        const buf = await exportFile(fileId, "text/csv");
-        const c = clip(buf.toString("utf8"));
-        return jsonText({ file: brief(meta), source: "google-sheet-export", tabs: [{ name: sheet ?? "Sheet1", ...c }] });
+        try {
+          buf = await exportFile(fileId, MIME.XLSX);
+        } catch (e) {
+          if (!(e instanceof Error) || e.message !== "EXPORT_TOO_LARGE") throw e;
+          const csvBuf = await exportFile(fileId, "text/csv");
+          const c = clip(csvBuf.toString("utf8"));
+          return jsonText({
+            file: brief(meta),
+            source: "google-sheet-csv-export",
+            note: "Sheet too large to export as a workbook; this is the FIRST tab only. Other tabs are not available here — open webViewLink.",
+            allTabs: null,
+            tabs: [{ name: "(first tab)", ...c }],
+          });
+        }
+      } else {
+        // Uploaded Excel (or CSV) → parse with xlsx.
+        buf = await downloadBytes(fileId);
       }
-
-      // Uploaded Excel (or CSV) → parse with xlsx.
-      const buf = await downloadBytes(fileId);
       let wb: XLSX.WorkBook;
       try {
         wb = XLSX.read(buf, { type: "buffer" });
@@ -226,7 +249,12 @@ export function registerDriveTools(server: McpServer): McpServer {
         const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name]);
         return { name, ...clip(csv) };
       });
-      return jsonText({ file: brief(meta), source: "xlsx-parse", allTabs: wb.SheetNames, tabs });
+      return jsonText({
+        file: brief(meta),
+        source: meta.mimeType === MIME.SHEET ? "google-sheet-xlsx-export" : "xlsx-parse",
+        allTabs: wb.SheetNames,
+        tabs,
+      });
     },
   );
 

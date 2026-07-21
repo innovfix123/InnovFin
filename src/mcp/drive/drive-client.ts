@@ -215,16 +215,32 @@ export async function listChildren(folderId?: string): Promise<DriveFile[]> {
   return listAll(q, "folder,name");
 }
 
-/** Full-text + name search across the whole subtree. */
-export async function searchSubtree(text: string): Promise<DriveFile[]> {
-  const term = esc(text.trim());
+/**
+ * Full-text + name search across the whole subtree.
+ *
+ * Ordered newest-first and reported as capped when it is. Drive's default order is unspecified, so an
+ * unordered result silently buried the file the caller actually wanted somewhere inside 1000 arbitrary
+ * hits — and `count: 1000` read as "1000 matches" rather than "cut off at the cap". Name matches are
+ * hoisted above body-text matches: someone searching "bank statement" wants the file called that, not
+ * every document that mentions the phrase.
+ */
+export async function searchSubtree(text: string): Promise<{ files: DriveFile[]; capped: boolean }> {
+  const raw = text.trim();
+  const term = esc(raw);
   const chunks = await subtreeParentClauses();
   const all: DriveFile[] = [];
   for (const clause of chunks) {
     const q = `trashed=false and (${clause}) and (name contains '${term}' or fullText contains '${term}')`;
-    all.push(...(await listAll(q, undefined)));
+    all.push(...(await listAll(q, "modifiedTime desc")));
   }
-  return dedup(all).slice(0, MAX_RESULTS);
+  const needle = raw.toLowerCase();
+  const merged = dedup(all).sort((a, b) => {
+    const an = a.name.toLowerCase().includes(needle) ? 0 : 1;
+    const bn = b.name.toLowerCase().includes(needle) ? 0 : 1;
+    if (an !== bn) return an - bn;
+    return (b.modifiedTime ?? "").localeCompare(a.modifiedTime ?? "");
+  });
+  return { files: merged.slice(0, MAX_RESULTS), capped: merged.length > MAX_RESULTS };
 }
 
 /** Most-recently-modified files across the subtree. */
@@ -291,6 +307,8 @@ export const MIME = {
   SHEET: "application/vnd.google-apps.spreadsheet",
   SLIDES: "application/vnd.google-apps.presentation",
   PDF: "application/pdf",
+  /** Export target for Google Sheets: CSV gives only the first tab, XLSX gives every tab. */
+  XLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 } as const;
 export { MAX_RESULTS };
 
