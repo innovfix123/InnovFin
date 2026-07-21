@@ -159,22 +159,38 @@ export function registerDriveTools(server: McpServer): McpServer {
     {
       title: "Search files by name or content",
       description:
-        "Search the connected Google Drive folder (and all its subfolders) by file name AND full-text content. Reads live from Drive. Input: query (a word or phrase, e.g. 'Cashfree invoice May' or a vendor/GSTIN). Results are ordered filename-matches first, then newest-first, so the best candidates lead. `capped: true` means there were more matches than the cap — narrow the query instead of treating the list as complete. Returns id, name, mimeType, size, modifiedTime, owner and webViewLink; use drive_read_file / drive_read_sheet / drive_read_pdf on an id to get the actual content. Full-text matching is Google's own Drive index (covers document bodies for supported types).",
-      inputSchema: { query: z.string().min(1).describe("name or content to search for within the folder") },
+        "Search the connected Google Drive folder (and all its subfolders) by file name AND full-text content. Reads live from Drive. Input: query (a word or phrase, e.g. 'Cashfree invoice May' or a vendor/GSTIN) and an optional limit (default 25, max 100). Results are ordered filename-matches first, then newest-first, so the best candidates lead. `matched` is how many files matched in total; when it exceeds the returned `count`, refine the query or raise the limit rather than treating the list as complete. `capped: true` additionally means Drive itself stopped counting. Returns id, name, mimeType, size, modifiedTime, owner and webViewLink; use drive_read_file / drive_read_sheet / drive_read_pdf on an id to get the actual content. Full-text matching is Google's own Drive index (covers document bodies for supported types).",
+      inputSchema: {
+        query: z.string().min(1).describe("name or content to search for within the folder"),
+        limit: z.number().int().min(1).max(100).optional().describe("how many results to return (default 25)"),
+      },
     },
-    async ({ query }) => {
+    async ({ query, limit }) => {
       const { files, capped, partialSubtree } = await searchSubtree(query);
+      // A broad query against this tree matches in the hundreds, and every result carries a long
+      // webViewLink. Returned whole, the response overflows the MCP client's token budget and the
+      // caller gets an ERROR instead of an answer — worse than a short list. A generic vendor
+      // search (vendor + month) returned 130 files / 59,005 characters and did exactly
+      // that. Truncation happens AFTER the filename-first, newest-first ordering, so the results
+      // most likely to be wanted are the ones kept, and `matched` always reports the true total.
+      const max = limit ?? 25;
+      const shown = files.slice(0, max);
       const notes = [
-        capped && `More than ${files.length} files match — this is the capped, newest-first list with filename matches first. Narrow the query rather than assuming this is every match.`,
-        partialSubtree && "The folder tree is larger than this search can sweep, so some subfolders were not searched. Browse with drive_list_files if you expect a file that isn't here.",
+        files.length > shown.length &&
+          `${files.length} files match; showing the first ${shown.length} (filename matches first, then newest). Narrow the query or raise limit to see the rest.`,
+        capped &&
+          "Drive stopped counting before the end, so even the match total is a lower bound. Narrow the query rather than assuming this is every match.",
+        partialSubtree &&
+          "The folder tree is larger than this search can sweep, so some subfolders were not searched. Browse with drive_list_files if you expect a file that isn't here.",
       ].filter(Boolean);
       return jsonText({
         query,
-        count: files.length,
+        count: shown.length,
+        matched: files.length,
         capped,
         ...(partialSubtree ? { partialSubtree } : {}),
         ...(notes.length ? { note: notes.join(" ") } : {}),
-        files: files.map(brief),
+        files: shown.map(brief),
       });
     },
   );

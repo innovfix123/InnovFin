@@ -565,6 +565,83 @@ describe("answering from a file — the failure modes that return wrong data qui
     expect(out.note).toMatch(/not a zip archive/i);
   });
 
+  it("ranks a filename that carries the query terms above one that only matches on content", async () => {
+    // Real regression: "VendorOne invoice April" put bank statements (which mention all three
+    // words in their contents) above the actual VendorOne invoices, whose first entry was at
+    // position 5. Whole-phrase-only matching means NO filename matches a multi-word query, so the
+    // ordering silently degraded to newest-first.
+    const { nameRelevance } = await import("./drive-client");
+    const q = "VendorOne invoice April";
+    const invoice = nameRelevance(q, "Employee - VendorOne - AI Tool Invoice - 23-04-2026.pdf");
+    const statement = nameRelevance(q, "Bank 1st April 26 - 30th June 26 statement.xls");
+    expect(invoice).toBeLessThan(statement);
+  });
+
+  it("ranks a whole-phrase filename match best of all", async () => {
+    const { nameRelevance } = await import("./drive-client");
+    expect(nameRelevance("bank conso", "1.2 May 2026 - Bank Conso - FINAL.xlsx")).toBe(0);
+  });
+
+  it("gives a name carrying none of the query terms the worst rank", async () => {
+    const { nameRelevance, NAME_RANK_NONE } = await import("./drive-client");
+    expect(nameRelevance("VendorOne invoice", "Bank statement.xls")).toBe(NAME_RANK_NONE);
+    expect(nameRelevance("", "anything.pdf")).toBe(NAME_RANK_NONE);
+  });
+
+  it("prefers a name matching more of the query terms", async () => {
+    const { nameRelevance } = await import("./drive-client");
+    const both = nameRelevance("gateway settlement", "Gateway settlement 2026.pdf");
+    const one = nameRelevance("gateway settlement", "Gateway payout 2026.pdf");
+    expect(both).toBeLessThan(one);
+  });
+
+  it("truncates a large result set instead of overflowing the caller's token budget", async () => {
+    // A real search for a vendor + month returned 130 files / 59,005 characters, which
+    // the MCP client rejected outright — the user got an error, not an answer.
+    const many = Array.from({ length: 130 }, (_, i) => ({
+      id: String(i), name: `invoice-${i}.pdf`, kind: "file", mimeType: "application/pdf",
+      webViewLink: `https://drive.google.com/file/d/${"x".repeat(33)}/view?usp=drivesdk`,
+    }));
+    const out = await callTool(
+      "drive_search_files",
+      { query: "VendorOne invoice April" },
+      { searchSubtree: async () => ({ files: many, capped: false }) },
+    );
+    expect(out.count).toBe(25);          // default limit
+    expect(out.matched).toBe(130);       // ...but the true total is still reported
+    expect(out.files).toHaveLength(25);
+    expect(out.note).toMatch(/130 files match/);
+    expect(JSON.stringify(out).length).toBeLessThan(20_000);
+  });
+
+  it("keeps the best-ranked results when it truncates", async () => {
+    // searchSubtree already orders filename-matches first, newest-first. Truncation must not
+    // reshuffle that, or the one file the user wanted can be the one dropped.
+    const files = Array.from({ length: 40 }, (_, i) => ({
+      id: String(i), name: `f${i}.pdf`, kind: "file", mimeType: "application/pdf",
+    }));
+    const out = await callTool(
+      "drive_search_files",
+      { query: "x", limit: 3 },
+      { searchSubtree: async () => ({ files, capped: false }) },
+    );
+    expect(out.files.map((f: { id: string }) => f.id)).toEqual(["0", "1", "2"]);
+  });
+
+  it("honours an explicit limit", async () => {
+    const files = Array.from({ length: 40 }, (_, i) => ({
+      id: String(i), name: `f${i}.pdf`, kind: "file", mimeType: "application/pdf",
+    }));
+    const out = await callTool(
+      "drive_search_files",
+      { query: "x", limit: 50 },
+      { searchSubtree: async () => ({ files, capped: false }) },
+    );
+    expect(out.count).toBe(40);          // fewer matches than the limit -> all of them
+    expect(out.matched).toBe(40);
+    expect(out.note).toBeUndefined();    // nothing withheld, so no note
+  });
+
   it("reports a capped search as capped, so the list is not read as every match", async () => {
     const out = await callTool(
       "drive_search_files",

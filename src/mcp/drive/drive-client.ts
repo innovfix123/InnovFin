@@ -332,6 +332,32 @@ export async function listChildren(folderId?: string): Promise<{ files: DriveFil
  * hoisted above body-text matches: someone searching "bank statement" wants the file called that, not
  * every document that mentions the phrase.
  */
+export const NAME_RANK_NONE = 3;
+
+/**
+ * How well a FILENAME answers a search query. Lower is better; used to order search results.
+ *
+ * Ranks: 0 = the whole phrase appears in the name; 1..2 = some query terms appear (1 when all of
+ * them do, approaching 2 as fewer match); NAME_RANK_NONE = the name carries none of them, so the
+ * file matched only on its contents.
+ *
+ * Matching the whole phrase ALONE — the original behaviour — silently collapses to newest-first on
+ * any multi-word query, since no file is literally named "<vendor> invoice April". Bank statements
+ * that merely mentioned all three words in their body outranked the actual vendor invoices,
+ * which began at position 5. Harmless while every match was returned; once results are truncated to
+ * fit the caller's token budget, poor ranking drops the wanted file entirely.
+ */
+export function nameRelevance(query: string, name: string): number {
+  const needle = query.trim().toLowerCase();
+  const haystack = name.toLowerCase();
+  if (!needle) return NAME_RANK_NONE;
+  if (haystack.includes(needle)) return 0;
+  const terms = needle.split(/\s+/).filter((t) => t.length > 1);
+  if (!terms.length) return NAME_RANK_NONE;
+  const hits = terms.filter((t) => haystack.includes(t)).length;
+  return hits === 0 ? NAME_RANK_NONE : 1 + (1 - hits / terms.length);
+}
+
 export async function searchSubtree(
   text: string,
 ): Promise<{ files: DriveFile[]; capped: boolean; partialSubtree: boolean }> {
@@ -346,11 +372,11 @@ export async function searchSubtree(
       ),
     )
   ).flat();
-  const needle = raw.toLowerCase();
-  const merged = dedup(all).sort((a, b) => {
-    const an = a.name.toLowerCase().includes(needle) ? 0 : 1;
-    const bn = b.name.toLowerCase().includes(needle) ? 0 : 1;
-    if (an !== bn) return an - bn;
+  const deduped = dedup(all);
+  const ranked = new Map(deduped.map((f) => [f.id, nameRelevance(raw, f.name)] as const));
+  const merged = deduped.sort((a, b) => {
+    const diff = (ranked.get(a.id) ?? NAME_RANK_NONE) - (ranked.get(b.id) ?? NAME_RANK_NONE);
+    if (diff !== 0) return diff;
     return (b.modifiedTime ?? "").localeCompare(a.modifiedTime ?? "");
   });
   return {
