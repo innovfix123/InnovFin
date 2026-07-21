@@ -168,11 +168,64 @@ export interface ItcEstimate {
 }
 
 /** itc_reconcile payload — the estimate held against the ACTUAL portal GSTR-2B. */
+/** One portal supplier, and how much of what they filed we actually hold. */
+export interface SupplierCoverage {
+  gstin: string;
+  supplierName: string | null;
+  /** Rank by 2B ITC, 1 = largest. */
+  rank: number;
+  invoices2b: number;
+  taxable2b: number;
+  itc2b: number;
+  /** Share of the period's total 2B ITC, and the running total down the ranking. */
+  sharePct: number;
+  cumulativePct: number;
+  capturedInvoices: number;
+  capturedItc: number;
+  missingItc: number;
+  status: "captured" | "partial" | "missing";
+  /** The specific invoices to go and collect, largest first. */
+  missingInvoices: Array<{ invoiceNo: string; invoiceDate: string | null; taxable: number; itc: number }>;
+  /** >0 when `missingInvoices` was capped — never a silent truncation. */
+  missingInvoicesNotShown: number;
+}
+
+/** "Capture this supplier too → coverage becomes X%" — the ranked what-if. */
+export interface CoverageScenario {
+  label: string;
+  addsItc: number;
+  cumulativeItc: number;
+  coveragePct: number;
+}
+
+/**
+ * How much of the month's REAL ITC the estimate is seeing, and what it would take to see the rest.
+ *
+ * The estimate can only ever be as good as the mailbox: a supplier who never emails an invoice is
+ * invisible to it until the portal 2B lands. This turns that blind spot into a ranked worklist —
+ * who filed, how much of it we hold, and which single supplier is worth chasing next.
+ */
+export interface ItcCoverage {
+  portalItcTotal: number;
+  capturedItc: number;
+  missingItc: number;
+  coveragePct: number;
+  suppliers2b: number;
+  /** Suppliers ranked by 2B ITC — the concentration view. */
+  suppliers: SupplierCoverage[];
+  /** Baseline first, then each uncaptured supplier in rank order. */
+  scenarios: CoverageScenario[];
+  /** Everything past the last scenario, so the ranking always sums back to 100%. */
+  tail: { suppliers: number; itc: number; sharePct: number };
+}
+
 export interface EstimateVsActual {
   basis: string;
   period: string;
   periodLabel: string;
   receivedTo: string | null;
+  /** Coverage — the "are we even seeing our own invoices?" view. */
+  coverage: ItcCoverage;
   headline: {
     /** ESTIMATE side — headline (clean) ITC from invoices in hand. */
     estimate: ItcHeads & { total: number; invoices: number };

@@ -259,3 +259,88 @@ describe("source mapping + workbook guard", () => {
     expect(readWorkbook(undefined, Buffer.from("hi").toString("base64")).toString()).toBe("hi");
   });
 });
+
+describe("buildCoverage — is the estimate even seeing our own invoices?", () => {
+  const p = (gstin: string, invoiceNo: string, itc: number, supplierName: string) =>
+    ({ gstin, invoiceNo, taxable: itc * 10, igst: itc, cgst: 0, sgst: 0, supplierName, invoiceDate: "30/06/2026" });
+
+  /** Portal filed 4 invoices across 3 suppliers; we hold exactly one of BIG's two. */
+  const twoB = (): Gstr2bResult => ({
+    itcAvailable: { igst: 1000, cgst: 0, sgst: 0, taxable: 10000 },
+    itcReversed: { igst: 0, cgst: 0, sgst: 0 },
+    itcIneligible: { igst: 0, cgst: 0, sgst: 0 },
+    invoices: [
+      p("29AAACX1234F1Z5", "INV-001", 100, "HELD CO"),   // we hold this one
+      p("27AAACR5055K1Z7", "BIG-1", 600, "BIG CO"),
+      p("27AAACR5055K1Z7", "BIG-2", 200, "BIG CO"),
+      p("06AABCF5150G1ZZ", "MID-1", 100, "MID CO"),
+    ],
+    b2bTotals: { igst: 1000, cgst: 0, sgst: 0, taxable: 10000, invoices: 4, matchesSummary: true },
+  });
+  const held = [evaluateLine(inv())]; // 29AAACX1234F1Z5 / INV-001
+
+  it("ranks suppliers by 2B ITC with share and cumulative share", () => {
+    const c = reconcileVsActual(held, twoB(), { period: "2026-06" }).coverage;
+    expect(c.suppliers.map((s) => s.supplierName)).toEqual(["BIG CO", "HELD CO", "MID CO"]);
+    expect(c.suppliers[0].rank).toBe(1);
+    expect(c.suppliers[0].sharePct).toBeCloseTo(80, 1);          // 800 of 1000
+    expect(c.suppliers[0].cumulativePct).toBeCloseTo(80, 1);
+    expect(c.suppliers[1].cumulativePct).toBeCloseTo(90, 1);     // 800 + 100
+  });
+
+  it("reports coverage from what we actually hold, and marks each supplier", () => {
+    const c = reconcileVsActual(held, twoB(), { period: "2026-06" }).coverage;
+    expect(c.portalItcTotal).toBe(1000);
+    expect(c.capturedItc).toBe(100);
+    expect(c.missingItc).toBe(900);
+    expect(c.coveragePct).toBeCloseTo(10, 1);
+    expect(c.suppliers.find((s) => s.supplierName === "HELD CO")!.status).toBe("captured");
+    expect(c.suppliers.find((s) => s.supplierName === "BIG CO")!.status).toBe("missing");
+    expect(c.suppliers.find((s) => s.supplierName === "MID CO")!.status).toBe("missing");
+  });
+
+  it("marks a supplier PARTIAL when only some of their invoices are in hand", () => {
+    const twoBPartial = twoB();
+    twoBPartial.invoices.push(p("29AAACX1234F1Z5", "INV-002", 50, "HELD CO"));
+    const c = reconcileVsActual(held, twoBPartial, { period: "2026-06" }).coverage;
+    const s = c.suppliers.find((x) => x.supplierName === "HELD CO")!;
+    expect(s.status).toBe("partial");
+    expect(s.capturedInvoices).toBe(1);
+    expect(s.invoices2b).toBe(2);
+    expect(s.missingItc).toBe(50);
+    expect(s.missingInvoices.map((i) => i.invoiceNo)).toEqual(["INV-002"]);
+  });
+
+  it("walks the what-if scenarios in rank order, largest supplier first", () => {
+    const c = reconcileVsActual(held, twoB(), { period: "2026-06" }).coverage;
+    expect(c.scenarios[0]).toMatchObject({ label: "captured today", coveragePct: 10 });
+    expect(c.scenarios[1].label).toBe("+ BIG CO");
+    expect(c.scenarios[1].coveragePct).toBeCloseTo(90, 1);   // 100 + 800
+    expect(c.scenarios[2].label).toBe("+ MID CO");
+    expect(c.scenarios[2].coveragePct).toBeCloseTo(100, 1);
+  });
+
+  it("caps a long collect-list but never truncates silently", () => {
+    const many = twoB();
+    for (let i = 0; i < 14; i++) many.invoices.push(p("06AABCF5150G1ZZ", `MID-X${i}`, 1, "MID CO"));
+    const s = reconcileVsActual(held, many, { period: "2026-06" }).coverage
+      .suppliers.find((x) => x.supplierName === "MID CO")!;
+    expect(s.missingInvoices).toHaveLength(10);
+    expect(s.missingInvoicesNotShown).toBe(5);               // 15 missing, 10 shown
+    expect(s.missingInvoices[0].itc).toBe(100);              // largest first
+  });
+
+  it("does not divide by zero when the portal 2B is empty", () => {
+    const empty: Gstr2bResult = {
+      itcAvailable: { igst: 0, cgst: 0, sgst: 0, taxable: 0 },
+      itcReversed: { igst: 0, cgst: 0, sgst: 0 },
+      itcIneligible: { igst: 0, cgst: 0, sgst: 0 },
+      invoices: [],
+      b2bTotals: { igst: 0, cgst: 0, sgst: 0, taxable: 0, invoices: 0, matchesSummary: true },
+    };
+    const c = reconcileVsActual(held, empty, { period: "2026-06" }).coverage;
+    expect(c.coveragePct).toBe(0);
+    expect(c.suppliers).toEqual([]);
+    expect(c.scenarios).toHaveLength(1);
+  });
+});

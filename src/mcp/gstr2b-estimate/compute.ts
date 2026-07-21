@@ -10,12 +10,12 @@
  *     excluded from the headline, listed with reasons, never auto-included (rules ⚠ pending Shoyab).
  */
 import type { Gstr2bResult } from "@/lib/gstr2b";
-import { reconcilePurchasesVs2b, type PurchaseInvoice } from "@/gst-core/reconcile";
+import { invKey, reconcilePurchasesVs2b, type PurchaseInvoice } from "@/gst-core/reconcile";
 import { ELIGIBILITY_RULES, GSTIN_RE, HOME_STATE_CODE, isOwnGstin, type EligibilityRules } from "./config";
 import { monthLabel, round2 } from "./util";
 import type {
-  EligibilityFlag, EstimateLine, EstimateVsActual, ItcEstimate, ItcHeads,
-  RegistryInvoice, ReviewLineSummary, VendorRollup,
+  CoverageScenario, EligibilityFlag, EstimateLine, EstimateVsActual, ItcCoverage, ItcEstimate,
+  ItcHeads, RegistryInvoice, ReviewLineSummary, SupplierCoverage, VendorRollup,
 } from "./types";
 
 export const ESTIMATE_BASIS =
@@ -278,6 +278,101 @@ export function toPurchaseInvoices(lines: EstimateLine[]): { books: PurchaseInvo
   return { books, excluded };
 }
 
+/** Per-supplier invoices shown on the collect-list before it is capped (with the rest counted). */
+const MAX_MISSING_SHOWN = 10;
+/** Stop listing what-ifs once they reach this much of the month, or at MAX_SCENARIOS. */
+const SCENARIO_TARGET_PCT = 99;
+const MAX_SCENARIOS = 10;
+
+/**
+ * How much of the month's real ITC the estimate is seeing — and the ranked worklist to close it.
+ *
+ * "Captured" means the exact invoice (GSTIN + number, same key the matcher uses) is in the
+ * registry, whether it landed in the headline or the review bucket: this measures whether the
+ * DOCUMENT reached us, which is the thing a billing-contact change fixes. Eligibility is a
+ * separate question and deliberately not mixed in here.
+ */
+export function buildCoverage(lines: EstimateLine[], twoB: Gstr2bResult): ItcCoverage {
+  const { books } = toPurchaseInvoices(lines);
+  const held = new Set(books.map(invKey));
+  const taxOf = (i: PurchaseInvoice) => i.igst + i.cgst + i.sgst;
+  const portalItcTotal = twoB.invoices.reduce((a, i) => a + taxOf(i), 0);
+
+  const grouped = new Map<string, PurchaseInvoice[]>();
+  for (const i of twoB.invoices) {
+    const g = i.gstin.trim().toUpperCase();
+    (grouped.get(g) ?? grouped.set(g, []).get(g)!).push(i);
+  }
+
+  const ranked = [...grouped.entries()]
+    .map(([gstin, invs]) => {
+      const missing = invs.filter((i) => !held.has(invKey(i))).sort((a, b) => taxOf(b) - taxOf(a));
+      const capturedInvoices = invs.length - missing.length;
+      return {
+        gstin,
+        supplierName: invs.find((i) => i.supplierName)?.supplierName ?? null,
+        invoices2b: invs.length,
+        taxable2b: round2(invs.reduce((a, i) => a + i.taxable, 0)),
+        itc2b: round2(invs.reduce((a, i) => a + taxOf(i), 0)),
+        capturedInvoices,
+        capturedItc: round2(invs.filter((i) => held.has(invKey(i))).reduce((a, i) => a + taxOf(i), 0)),
+        missingItc: round2(missing.reduce((a, i) => a + taxOf(i), 0)),
+        status: (missing.length === 0 ? "captured" : capturedInvoices === 0 ? "missing" : "partial") as SupplierCoverage["status"],
+        missingInvoices: missing.slice(0, MAX_MISSING_SHOWN).map((i) => ({
+          invoiceNo: i.invoiceNo,
+          invoiceDate: i.invoiceDate ?? null,
+          taxable: round2(i.taxable),
+          itc: round2(taxOf(i)),
+        })),
+        missingInvoicesNotShown: Math.max(0, missing.length - MAX_MISSING_SHOWN),
+      };
+    })
+    .sort((a, b) => b.itc2b - a.itc2b);
+
+  const share = (v: number) => (portalItcTotal > 0 ? round2((v / portalItcTotal) * 100) : 0);
+  let running = 0;
+  const suppliers: SupplierCoverage[] = ranked.map((s, idx) => {
+    running += s.itc2b;
+    return { ...s, rank: idx + 1, sharePct: share(s.itc2b), cumulativePct: share(running) };
+  });
+
+  const capturedItc = round2(suppliers.reduce((a, s) => a + s.capturedItc, 0));
+
+  // What-if: add each not-yet-complete supplier, largest first, until we're essentially there.
+  const scenarios: CoverageScenario[] = [
+    { label: "captured today", addsItc: 0, cumulativeItc: capturedItc, coveragePct: share(capturedItc) },
+  ];
+  let cumulative = capturedItc;
+  let listed = 0;
+  for (const s of suppliers.filter((x) => x.missingItc > 0)) {
+    if (listed >= MAX_SCENARIOS || share(cumulative) >= SCENARIO_TARGET_PCT) break;
+    cumulative = round2(cumulative + s.missingItc);
+    listed++;
+    scenarios.push({
+      label: `+ ${s.supplierName ?? s.gstin}`,
+      addsItc: s.missingItc,
+      cumulativeItc: cumulative,
+      coveragePct: share(cumulative),
+    });
+  }
+  const tailItc = round2(portalItcTotal - cumulative);
+
+  return {
+    portalItcTotal: round2(portalItcTotal),
+    capturedItc,
+    missingItc: round2(portalItcTotal - capturedItc),
+    coveragePct: share(capturedItc),
+    suppliers2b: suppliers.length,
+    suppliers,
+    scenarios,
+    tail: {
+      suppliers: suppliers.filter((x) => x.missingItc > 0).length - listed,
+      itc: tailItc,
+      sharePct: share(tailItc),
+    },
+  };
+}
+
 /** Hold the estimate against the ACTUAL portal GSTR-2B (already parsed by src/lib/gstr2b.ts). */
 export function reconcileVsActual(
   lines: EstimateLine[],
@@ -310,6 +405,7 @@ export function reconcileVsActual(
     period: opts.period,
     periodLabel: monthLabel(opts.period),
     receivedTo: opts.receivedTo ?? null,
+    coverage: buildCoverage(lines, twoB),
     headline: {
       estimate: { ...estR, total: round2(headsTotal(est)), invoices: included.length },
       estimateWithReview: { ...allR, total: round2(headsTotal(all)), invoices: lines.length },

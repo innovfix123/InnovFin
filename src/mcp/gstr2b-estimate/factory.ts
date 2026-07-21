@@ -117,7 +117,13 @@ export function buildGstr2bEstimateServer(): McpServer {
       "(2) the invoice-level match by GSTIN+invoice number via the tested books↔2B reconciler: matched (with any " +
       "tax differences), inBooksNotIn2b (supplier hasn't filed → ITC at risk, chase), in2bNotInBooks (invoice " +
       "never captured in the registry → book it); (3) what couldn't join the match and the portal's " +
-      "reversed/ineligible rows. Ask 'reconcile the 2B', 'estimate vs actual', 'did our ITC land' → this tool.",
+      "reversed/ineligible rows; and (4) `coverage` — WHAT SHARE OF OUR REAL ITC THE ESTIMATE IS SEEING, " +
+      "and the ranked worklist to close it: coveragePct, every portal supplier ranked by ITC with share/" +
+      "cumulative share and captured|partial|missing status, the exact missing invoice numbers + dates to go " +
+      "and collect from each, and `scenarios` — a what-if walk (\"+ GOOGLE INDIA → 86.55%\", \"+ META → 96.09%\") " +
+      "showing the coverage you reach by capturing each next-largest supplier. Use coverage to answer 'why is " +
+      "the estimate so far off', 'who do we chase', 'what would we cover if vendor X emailed invoices@', 'which " +
+      "suppliers are we missing'. Ask 'reconcile the 2B', 'estimate vs actual', 'did our ITC land' → this tool.",
     inputSchema: {
       period: PERIOD,
       file: z.string().describe("path to the portal GSTR-2B .xlsx under GSTR-2B-est-mcp/ (e.g. GSTR-2B-est-mcp/2b/GSTR2B_29AAICI1603A1Z3_062026.xlsx)").optional(),

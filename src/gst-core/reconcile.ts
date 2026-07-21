@@ -92,7 +92,8 @@ export interface PurchaseRecon {
   ok: boolean;
 }
 
-const invKey = (i: PurchaseInvoice) => `${i.gstin}|${i.invoiceNo}`.toUpperCase().replace(/\s+/g, "");
+/** The books↔2B match key. Exported so anything reporting on the match keys identically. */
+export const invKey = (i: PurchaseInvoice) => `${i.gstin}|${i.invoiceNo}`.toUpperCase().replace(/\s+/g, "");
 const taxOf = (i: PurchaseInvoice) => i.igst + i.cgst + i.sgst;
 
 /** Cross check — match the books purchase register against GSTR-2B B2B invoices. */
