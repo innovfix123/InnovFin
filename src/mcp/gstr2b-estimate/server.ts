@@ -5,12 +5,12 @@
  * Launch: npx tsx src/mcp/gstr2b-estimate/server.ts
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { buildGstr2bEstimateServer, GSTR2B_ESTIMATE_TOOLS } from "./factory";
+import { buildGstr2bEstimateServer, gstr2bEstimateTools } from "./factory";
 
 async function main(): Promise<void> {
   const server = buildGstr2bEstimateServer();
   await server.connect(new StdioServerTransport());
   // stdout is the MCP channel — logs must go to stderr.
-  console.error(`gstr2b-estimate MCP server ready (stdio) — tools: ${GSTR2B_ESTIMATE_TOOLS.join(", ")}`);
+  console.error(`gstr2b-estimate MCP server ready (stdio) — tools: ${gstr2bEstimateTools().join(", ")}`);
 }
 main().catch((e) => { console.error("gstr2b-estimate server failed:", e); process.exit(1); });

@@ -1,14 +1,18 @@
 /**
- * buildDriveServer — the single source of truth for the Google Drive MCP toolset.
+ * registerDriveTools — the single source of truth for the Google Drive toolset.
  *
- * This MCP is a LIVE BRIDGE to one shared Google Drive folder (DRIVE_FOLDER_ID). Google Drive is the
- * Single Source of Truth: every tool reads live from Drive on each call, so a new upload, an edit, a
- * rename, a move, or a delete is reflected immediately with no synchronization step. Nothing is
+ * These tools are a LIVE BRIDGE to one shared Google Drive folder (DRIVE_FOLDER_ID). Google Drive is
+ * the Single Source of Truth: every tool reads live from Drive on each call, so a new upload, an edit,
+ * a rename, a move, or a delete is reflected immediately with no synchronization step. Nothing is
  * persisted and no file bytes are stored — only a 60s in-memory cache of the folder-tree's folder IDs
  * (pure metadata) to keep search cheap. File CONTENT is always fetched fresh from Drive.
  *
- * Six read-only tools: list_files, search_files, get_latest_documents, read_file, read_sheet, read_pdf.
- * Both transports import this factory: the stdio entry (server.ts) and the networked HTTPS route.
+ * There is deliberately NO standalone /mcp/drive endpoint: these tools are MOUNTED INTO the
+ * gstr2b-estimate MCP (src/mcp/gstr2b-estimate/factory.ts) so finance has one connection that can both
+ * compute ITC and read the source documents. Tool names are prefixed `drive_` so they never collide
+ * with the host server's own tools and are unambiguous to the model.
+ *
+ * Six read tools (always) + six write tools (only when DRIVE_MCP_WRITE is enabled).
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -21,9 +25,16 @@ import {
   downloadBytes,
   exportFile,
   rootFolderId,
+  createFolder,
+  uploadTextFile,
+  updateFileContent,
+  renameFile,
+  moveFile,
+  trashFile,
   MIME,
   type DriveFile,
 } from "./drive-client";
+import { writeEnabled } from "./env";
 
 /** Cap on how much extracted text any read_* tool returns, to keep responses sane. */
 const TEXT_CAP = 200_000;
@@ -61,12 +72,14 @@ async function extractPdfText(buf: Buffer): Promise<{ text: string; pages: numbe
   return { text: d.text ?? "", pages: d.numpages ?? 0 };
 }
 
-export function buildDriveServer(): McpServer {
-  const server = new McpServer({ name: "drive", version: "1.0.0" });
-
+/**
+ * Mount every Drive tool onto an existing MCP server (the gstr2b-estimate one). Returns the same
+ * server for chaining. Write tools are registered only when DRIVE_MCP_WRITE is enabled.
+ */
+export function registerDriveTools(server: McpServer): McpServer {
   // ------------------------------------------------------------------------------------------------
   server.registerTool(
-    "list_files",
+    "drive_list_files",
     {
       title: "List files & folders in the Drive folder",
       description:
@@ -85,11 +98,11 @@ export function buildDriveServer(): McpServer {
 
   // ------------------------------------------------------------------------------------------------
   server.registerTool(
-    "search_files",
+    "drive_search_files",
     {
       title: "Search files by name or content",
       description:
-        "Search the connected Google Drive folder (and all its subfolders) by file name AND full-text content. Reads live from Drive. Input: query (a word or phrase, e.g. 'Cashfree invoice May' or a vendor/GSTIN). Returns matching files with id, name, mimeType, size, modifiedTime, owner and webViewLink. Use read_file / read_sheet / read_pdf on a returned id to get the actual content. Full-text matching is Google's own Drive index (covers document bodies for supported types).",
+        "Search the connected Google Drive folder (and all its subfolders) by file name AND full-text content. Reads live from Drive. Input: query (a word or phrase, e.g. 'Cashfree invoice May' or a vendor/GSTIN). Returns matching files with id, name, mimeType, size, modifiedTime, owner and webViewLink. Use drive_read_file / drive_read_sheet / drive_read_pdf on a returned id to get the actual content. Full-text matching is Google's own Drive index (covers document bodies for supported types).",
       inputSchema: { query: z.string().min(1).describe("name or content to search for within the folder") },
     },
     async ({ query }) => {
@@ -100,7 +113,7 @@ export function buildDriveServer(): McpServer {
 
   // ------------------------------------------------------------------------------------------------
   server.registerTool(
-    "get_latest_documents",
+    "drive_latest_documents",
     {
       title: "Get the most recently changed documents",
       description:
@@ -115,11 +128,11 @@ export function buildDriveServer(): McpServer {
 
   // ------------------------------------------------------------------------------------------------
   server.registerTool(
-    "read_file",
+    "drive_read_file",
     {
       title: "Read a file's content as text",
       description:
-        "Read the content of a single file (by id) as text, fetched live from Drive. Google Docs → plain text; Google Sheets → CSV (use read_sheet for multi-tab structure); Google Slides → text; plain-text/CSV/JSON uploads → their text; PDFs → routed to text extraction (or use read_pdf). Binary/office files (.xlsx/.docx/images) are NOT decoded here — use read_sheet for spreadsheets, read_pdf for PDFs. Google-native docs over 10 MB can't be exported by the API (Google limit); the tool then returns the webViewLink instead. Input: fileId (from list_files/search_files).",
+        "Read the content of a single file (by id) as text, fetched live from Drive. Google Docs → plain text; Google Sheets → CSV (use drive_read_sheet for multi-tab structure); Google Slides → text; plain-text/CSV/JSON uploads → their text; PDFs → routed to text extraction (or use drive_read_pdf). Binary/office files (.xlsx/.docx/images) are NOT decoded here — use drive_read_sheet for spreadsheets, drive_read_pdf for PDFs. Google-native docs over 10 MB can't be exported by the API (Google limit); the tool then returns the webViewLink instead. Input: fileId (from drive_list_files/drive_search_files).",
       inputSchema: { fileId: z.string().min(1).describe("the file id to read") },
     },
     async ({ fileId }) => {
@@ -163,7 +176,7 @@ export function buildDriveServer(): McpServer {
       // Anything else — don't guess; point the caller at the right tool / the link.
       return jsonText({
         file: brief(meta),
-        note: `Binary type ${meta.mimeType} isn't decoded by read_file. Use read_sheet for spreadsheets, read_pdf for PDFs, or open the webViewLink.`,
+        note: `Binary type ${meta.mimeType} isn't decoded by drive_read_file. Use drive_read_sheet for spreadsheets, drive_read_pdf for PDFs, or open the webViewLink.`,
         webViewLink: meta.webViewLink,
       });
     },
@@ -171,7 +184,7 @@ export function buildDriveServer(): McpServer {
 
   // ------------------------------------------------------------------------------------------------
   server.registerTool(
-    "read_sheet",
+    "drive_read_sheet",
     {
       title: "Read a spreadsheet (Google Sheet or Excel)",
       description:
@@ -219,17 +232,17 @@ export function buildDriveServer(): McpServer {
 
   // ------------------------------------------------------------------------------------------------
   server.registerTool(
-    "read_pdf",
+    "drive_read_pdf",
     {
       title: "Read a PDF's text",
       description:
-        "Extract the text of a PDF (by id), live from Drive. Returns the embedded text layer and page count — ideal for invoices, bank statements, agreements etc. that were saved as digital PDFs. If the PDF is a scanned image with no text layer, it returns a note that OCR is required (no text). Input: fileId. For non-PDF files use read_file / read_sheet.",
+        "Extract the text of a PDF (by id), live from Drive. Returns the embedded text layer and page count — ideal for invoices, bank statements, agreements etc. that were saved as digital PDFs. If the PDF is a scanned image with no text layer, it returns a note that OCR is required (no text). Input: fileId. For non-PDF files use drive_read_file / drive_read_sheet.",
       inputSchema: { fileId: z.string().min(1).describe("the PDF file id") },
     },
     async ({ fileId }) => {
       const meta = await getMetadata(fileId);
       if (meta.mimeType !== MIME.PDF && !/pdf/i.test(meta.name)) {
-        return jsonText({ file: brief(meta), error: "not_a_pdf", note: `${meta.mimeType} is not a PDF — use read_file or read_sheet.` });
+        return jsonText({ file: brief(meta), error: "not_a_pdf", note: `${meta.mimeType} is not a PDF — use drive_read_file or drive_read_sheet.` });
       }
       const buf = await downloadBytes(fileId);
       try {
@@ -245,8 +258,120 @@ export function buildDriveServer(): McpServer {
     },
   );
 
+  // ================================================================================================
+  // WRITE TOOLS (Phase 3) — registered ONLY when DRIVE_MCP_WRITE is enabled AND the SA is shared as
+  // Editor. Read-only deployments never even expose these. No permanent delete: drive_trash_file is
+  // recoverable. Every mutation is confined to the connected folder tree by the drive-client.
+  // ================================================================================================
+  if (writeEnabled()) {
+    server.registerTool(
+      "drive_create_folder",
+      {
+        title: "Create a new subfolder",
+        description:
+          "Create a new subfolder inside the connected Google Drive folder (or inside a given subfolder). Reflected live. Input: name, optional parentFolderId (must be inside the connected tree; omit for the root). Returns the new folder's metadata.",
+        inputSchema: {
+          name: z.string().min(1).describe("the new folder name"),
+          parentFolderId: z.string().optional().describe("parent subfolder id; omit for the connected root"),
+        },
+      },
+      async ({ name, parentFolderId }) => jsonText({ created: brief(await createFolder(name, parentFolderId)) }),
+    );
+
+    server.registerTool(
+      "drive_upload_text_file",
+      {
+        title: "Create a new text/CSV file from content",
+        description:
+          "Create a NEW text-based file (plain text, CSV, JSON, Markdown) inside the connected folder from the content you provide. Reflected live. For binary files (PDF/xlsx/images) upload directly in Drive instead. Input: name, content (the file's text), optional mimeType (default text/plain — use text/csv for CSV), optional parentFolderId. Returns the new file's metadata.",
+        inputSchema: {
+          name: z.string().min(1).describe("the new file name (include an extension, e.g. notes.csv)"),
+          content: z.string().describe("the text content of the file"),
+          mimeType: z.string().optional().describe("e.g. text/plain, text/csv, application/json (default text/plain)"),
+          parentFolderId: z.string().optional().describe("parent subfolder id; omit for the connected root"),
+        },
+      },
+      async ({ name, content, mimeType, parentFolderId }) =>
+        jsonText({ created: brief(await uploadTextFile(name, content, { mimeType, parentFolderId })) }),
+    );
+
+    server.registerTool(
+      "drive_update_file_content",
+      {
+        title: "Replace an existing text file's content",
+        description:
+          "Overwrite the content of an existing uploaded text-based file (text/CSV/JSON/Markdown) with new content. Cannot overwrite Google-native Docs/Sheets/Slides (edit those in Drive). Reflected live. Input: fileId, content (the new full text), optional mimeType. Returns updated metadata.",
+        inputSchema: {
+          fileId: z.string().min(1).describe("the file id to overwrite"),
+          content: z.string().describe("the new full text content"),
+          mimeType: z.string().optional().describe("override the stored mime type if needed"),
+        },
+      },
+      async ({ fileId, content, mimeType }) => jsonText({ updated: brief(await updateFileContent(fileId, content, mimeType)) }),
+    );
+
+    server.registerTool(
+      "drive_rename_file",
+      {
+        title: "Rename a file or folder",
+        description:
+          "Rename a file or folder inside the connected tree. Reflected live. Input: fileId, newName. Returns updated metadata.",
+        inputSchema: {
+          fileId: z.string().min(1).describe("the file or folder id"),
+          newName: z.string().min(1).describe("the new name"),
+        },
+      },
+      async ({ fileId, newName }) => jsonText({ renamed: brief(await renameFile(fileId, newName)) }),
+    );
+
+    server.registerTool(
+      "drive_move_file",
+      {
+        title: "Move a file or folder to another subfolder",
+        description:
+          "Move a file or folder into a different subfolder WITHIN the connected tree (cannot move things out of the connected folder). Reflected live. Input: fileId, targetFolderId (must be inside the connected tree). Returns updated metadata.",
+        inputSchema: {
+          fileId: z.string().min(1).describe("the file or folder id to move"),
+          targetFolderId: z.string().min(1).describe("destination folder id, inside the connected tree"),
+        },
+      },
+      async ({ fileId, targetFolderId }) => jsonText({ moved: brief(await moveFile(fileId, targetFolderId)) }),
+    );
+
+    server.registerTool(
+      "drive_trash_file",
+      {
+        title: "Move a file or folder to Trash (recoverable)",
+        description:
+          "Move a file or folder to the Drive Trash. This is RECOVERABLE (restore from Drive Trash within ~30 days) — it is NOT a permanent delete, by design. Reflected live. Input: fileId. Returns the trashed item's metadata.",
+        inputSchema: { fileId: z.string().min(1).describe("the file or folder id to move to Trash") },
+      },
+      async ({ fileId }) => jsonText({ trashed: brief(await trashFile(fileId)) }),
+    );
+  }
+
   return server;
 }
 
-/** Tool names exposed by this server — used by the audit layer to validate/label calls. */
-export const DRIVE_TOOLS = ["list_files", "search_files", "get_latest_documents", "read_file", "read_sheet", "read_pdf"] as const;
+/** Read-only Drive tools — always registered on the host server. */
+export const DRIVE_READ_TOOLS = [
+  "drive_list_files",
+  "drive_search_files",
+  "drive_latest_documents",
+  "drive_read_file",
+  "drive_read_sheet",
+  "drive_read_pdf",
+] as const;
+/** Write tools — registered only when DRIVE_MCP_WRITE is enabled. */
+export const DRIVE_WRITE_TOOLS = [
+  "drive_create_folder",
+  "drive_upload_text_file",
+  "drive_update_file_content",
+  "drive_rename_file",
+  "drive_move_file",
+  "drive_trash_file",
+] as const;
+/** Names actually exposed given the current write flag — used for the audit label + startup log. */
+export function activeDriveTools(): string[] {
+  return writeEnabled() ? [...DRIVE_READ_TOOLS, ...DRIVE_WRITE_TOOLS] : [...DRIVE_READ_TOOLS];
+}

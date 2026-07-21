@@ -20,10 +20,6 @@
       "command": "/var/www/innovfin/node_modules/.bin/tsx",
       "args": ["/var/www/innovfin/src/mcp/gstr2b-estimate/server.ts"]
     },
-    "drive": {
-      "command": "/var/www/innovfin/node_modules/.bin/tsx",
-      "args": ["/var/www/innovfin/src/mcp/drive/server.ts"]
-    },
     "invoice-intelligence": {
       "command": "/var/www/innovfin/invoice-intelligence/.venv/bin/python",
       "args": ["-m", "mcp_server.server"],

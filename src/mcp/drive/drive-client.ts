@@ -293,3 +293,107 @@ export const MIME = {
   PDF: "application/pdf",
 } as const;
 export { MAX_RESULTS };
+
+// ===================================================================================================
+// WRITE API (Phase 3) — only reachable when DRIVE_MCP_WRITE is enabled (factory gates registration) and
+// the SA is shared as Editor. Every mutation is scope-confined to the configured folder subtree, and no
+// operation permanently deletes: removal is a recoverable move-to-Trash. The folder-ID cache is
+// invalidated after any structural change so search/list stay live.
+// ===================================================================================================
+const UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
+const RETURN_FIELDS = `fields=${encodeURIComponent(FILE_FIELDS)}&supportsAllDrives=true`;
+
+/** Drop the 60s folder-tree cache after a structural change so the next list/search re-walks live. */
+function invalidateFolderCache(): void {
+  folderSetCache = null;
+}
+
+async function mutateJson(path: string, method: "POST" | "PATCH", jsonBody: unknown): Promise<DriveFile> {
+  const res = await driveFetch(path, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(jsonBody),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Drive API ${res.status} on ${method} ${path.split("?")[0]}: ${detail.slice(0, 300)}`);
+  }
+  return shape(await res.json());
+}
+
+/** Create a subfolder inside the tree (default parent = the configured root). */
+export async function createFolder(name: string, parentFolderId?: string): Promise<DriveFile> {
+  const parent = parentFolderId?.trim() || rootFolderId();
+  if (!(await isInScope(parent))) throw new Error(`Drive MCP: parent folder ${parent} is outside the configured folder subtree`);
+  const out = await mutateJson(`/files?${RETURN_FIELDS}`, "POST", { name, mimeType: FOLDER_MIME, parents: [parent] });
+  invalidateFolderCache();
+  return out;
+}
+
+/** Upload a NEW text-ish file (text/CSV/JSON/markdown) into the tree from a string. */
+export async function uploadTextFile(name: string, content: string, opts?: { mimeType?: string; parentFolderId?: string }): Promise<DriveFile> {
+  const parent = opts?.parentFolderId?.trim() || rootFolderId();
+  if (!(await isInScope(parent))) throw new Error(`Drive MCP: parent folder ${parent} is outside the configured folder subtree`);
+  const mimeType = opts?.mimeType || "text/plain";
+  const boundary = `innovfin-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+  const meta = JSON.stringify({ name, parents: [parent], mimeType });
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n` +
+    `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n${content}\r\n` +
+    `--${boundary}--`;
+  const res = await driveFetch(`${UPLOAD_API}/files?uploadType=multipart&${RETURN_FIELDS}`, {
+    method: "POST",
+    headers: { "content-type": `multipart/related; boundary=${boundary}` },
+    body,
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Drive API ${res.status} uploading file: ${detail.slice(0, 300)}`);
+  }
+  return shape(await res.json());
+}
+
+/** Replace the content of an existing uploaded (non-Google-native) file. */
+export async function updateFileContent(fileId: string, content: string, mimeType?: string): Promise<DriveFile> {
+  const meta = await getMetadata(fileId); // enforce scope + existence
+  if (meta.kind === "folder") throw new Error("Drive MCP: cannot set content on a folder");
+  if (/^application\/vnd\.google-apps\./.test(meta.mimeType)) {
+    throw new Error("Drive MCP: cannot overwrite a Google-native Doc/Sheet/Slides via update_file_content (edit it in Drive)");
+  }
+  const res = await driveFetch(`${UPLOAD_API}/files/${encodeURIComponent(fileId)}?uploadType=media&${RETURN_FIELDS}`, {
+    method: "PATCH",
+    headers: { "content-type": mimeType || meta.mimeType || "text/plain" },
+    body: content,
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Drive API ${res.status} updating ${fileId}: ${detail.slice(0, 300)}`);
+  }
+  return shape(await res.json());
+}
+
+/** Rename a file or folder (scope-checked). */
+export async function renameFile(fileId: string, newName: string): Promise<DriveFile> {
+  await getMetadata(fileId); // enforce scope
+  return mutateJson(`/files/${encodeURIComponent(fileId)}?${RETURN_FIELDS}`, "PATCH", { name: newName });
+}
+
+/** Move a file/folder to another folder within the tree. */
+export async function moveFile(fileId: string, targetFolderId: string): Promise<DriveFile> {
+  const file = await getMetadata(fileId); // enforce scope (source)
+  const target = targetFolderId.trim();
+  if (!(await isInScope(target))) throw new Error(`Drive MCP: target folder ${target} is outside the configured folder subtree`);
+  const removeParents = (file.parents ?? []).join(",");
+  const q = `addParents=${encodeURIComponent(target)}${removeParents ? `&removeParents=${encodeURIComponent(removeParents)}` : ""}`;
+  const out = await mutateJson(`/files/${encodeURIComponent(fileId)}?${q}&${RETURN_FIELDS}`, "PATCH", {});
+  invalidateFolderCache();
+  return out;
+}
+
+/** Move a file/folder to Trash — recoverable, never a permanent delete. */
+export async function trashFile(fileId: string): Promise<DriveFile> {
+  await getMetadata(fileId); // enforce scope
+  const out = await mutateJson(`/files/${encodeURIComponent(fileId)}?${RETURN_FIELDS}`, "PATCH", { trashed: true });
+  invalidateFolderCache();
+  return out;
+}

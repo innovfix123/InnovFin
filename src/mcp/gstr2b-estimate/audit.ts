@@ -42,6 +42,15 @@ export function safeArgs(args: unknown): Record<string, unknown> | undefined {
   if (typeof a.bucket === "string") out.bucket = a.bucket;
   if (typeof a.file === "string") out.hasFile = true;
   if (typeof a.file_base64 === "string") out.hasFileB64 = true;
+  // Drive tools: identifiers and sizes only — never file content, and never the search query text
+  // (which can itself carry a vendor name or GSTIN).
+  if (typeof a.fileId === "string") out.fileId = a.fileId;
+  if (typeof a.folderId === "string") out.folderId = a.folderId;
+  if (typeof a.parentFolderId === "string") out.parentFolderId = a.parentFolderId;
+  if (typeof a.targetFolderId === "string") out.targetFolderId = a.targetFolderId;
+  if (typeof a.sheet === "string") out.sheet = a.sheet;
+  if (typeof a.query === "string") out.queryLen = a.query.length;
+  if (typeof a.content === "string") out.contentLen = a.content.length;
   return Object.keys(out).length ? out : undefined;
 }
 

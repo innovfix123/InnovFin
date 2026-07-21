@@ -51,13 +51,8 @@ const nextConfig: NextConfig = {
       { source: "/.well-known/oauth-authorization-server/mcp/gstr2b-estimate", destination: "/mcp/gstr2b-estimate/oauth/authorization-server-metadata" },
       { source: "/.well-known/openid-configuration/mcp/gstr2b-estimate", destination: "/mcp/gstr2b-estimate/oauth/authorization-server-metadata" },
       { source: "/mcp/gstr2b-estimate/.well-known/oauth-authorization-server", destination: "/mcp/gstr2b-estimate/oauth/authorization-server-metadata" },
-      // Google Drive AS uses a PATH-BASED issuer (https://host/mcp/drive) too — metadata under
-      // path-inserted well-known locations, no collision with the others. Served at BOTH the RFC 8414
-      // path-insertion and the path-suffix location so any spec-compliant client finds it.
-      { source: "/.well-known/oauth-protected-resource/mcp/drive", destination: "/mcp/drive/oauth/protected-resource-metadata" },
-      { source: "/.well-known/oauth-authorization-server/mcp/drive", destination: "/mcp/drive/oauth/authorization-server-metadata" },
-      { source: "/.well-known/openid-configuration/mcp/drive", destination: "/mcp/drive/oauth/authorization-server-metadata" },
-      { source: "/mcp/drive/.well-known/oauth-authorization-server", destination: "/mcp/drive/oauth/authorization-server-metadata" },
+      // NOTE: there is no /mcp/drive endpoint — the Google Drive tools (drive_*) are mounted INTO the
+      // gstr2b-estimate server above, so they are reached over that same connection and AS.
     ];
   },
 };

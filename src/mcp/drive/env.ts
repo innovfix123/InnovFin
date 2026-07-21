@@ -15,6 +15,15 @@ function unquote(v: string): string {
   return v;
 }
 
+/**
+ * Write tools (create/upload/rename/move/update/trash) are gated behind this flag. OFF by default:
+ * the endpoint is read-only unless DRIVE_MCP_WRITE is explicitly set to 1/true/yes/on. When off, the
+ * outbound OAuth scope also stays `drive.readonly`, so a mis-set flag can never silently gain write.
+ */
+export function writeEnabled(): boolean {
+  return /^(1|true|yes|on)$/i.test((envVar("DRIVE_MCP_WRITE") ?? "").trim());
+}
+
 export function envVar(key: string): string | undefined {
   if (process.env[key]) return process.env[key];
   try {
