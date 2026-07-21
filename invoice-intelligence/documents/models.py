@@ -34,3 +34,4 @@ class DocumentMetadata:
     source_message_id: str
     source_sender: str = ""           # who emailed it (From header)
     source_date: str = ""             # when it was emailed (raw Date header)
+    source_ref: str = ""              # where it came from: the .eml name, or the Drive path

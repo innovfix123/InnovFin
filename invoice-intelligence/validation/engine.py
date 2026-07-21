@@ -206,3 +206,35 @@ def _as_number(value: Any) -> float | None:
         return float(s)
     except ValueError:
         return None
+
+
+class TrustedSourceValidator:
+    """Validator for documents that a human has ALREADY reviewed before we ever saw them.
+
+    The purchase-invoice archive in the finance Drive folder is not an inbox — every document in it
+    was checked, approved and filed by the finance team, in many cases already claimed in a filed
+    GST return. Routing it into our manual-review queue asks a person to re-do work that is
+    finished, for thousands of documents.
+
+    So this wrapper runs the real :class:`InvoiceValidator` unchanged — every check still executes
+    and every failure is still recorded in ``checks``/``errors``/``confidence``, so the record stays
+    fully auditable and you can always ask "which of these has a missing total?" — and then forces
+    ``needs_review`` to False. The document lands as ``accepted``.
+
+    What this does NOT do is invent data: a field OCR could not read stays empty, and the error
+    explaining why stays attached to the record. It changes the QUEUE, not the FACTS.
+    """
+
+    def __init__(self, inner: InvoiceValidator | None = None,
+                 source_label: str = "curated invoice folder") -> None:
+        self.inner = inner or InvoiceValidator()
+        self.source_label = source_label
+
+    @classmethod
+    def from_config(cls, settings: dict[str, Any] | None,
+                    source_label: str = "curated invoice folder") -> "TrustedSourceValidator":
+        return cls(InvoiceValidator.from_config(settings), source_label)
+
+    def validate(self, fields: InvoiceFields) -> ValidationResult:
+        r = self.inner.validate(fields)
+        return ValidationResult(r.checks, r.errors, r.confidence, False)

@@ -44,6 +44,7 @@ class InvoicePipeline:
         builder: CanonicalBuilder | None = None,
         store=None,
         gate: InvoiceRelevance | None = None,
+        enricher=None,
     ) -> None:
         self.typer = typer
         self.extractor = extractor
@@ -53,23 +54,37 @@ class InvoicePipeline:
         self.builder = builder or CanonicalBuilder()
         self.store = store
         self.gate = gate or InvoiceRelevance()
+        # Optional source-specific gap-filler, applied between extraction and validation. Anything
+        # with an ``enrich(fields, metadata)`` method. The mailbox flow passes none; the Drive
+        # ingest passes a DriveHintEnricher so a human's folder/filename can supply fields OCR
+        # cannot read. Hints run BEFORE validation so a filled gap counts as a satisfied mandatory
+        # field rather than an error.
+        self.enricher = enricher
 
     def process_one(self, provider, ref) -> CanonicalInvoice:
         dtype = self.typer.detect(provider, ref).document_type
         content = self.extractor.extract(provider, ref, dtype)
         fields = self.field_extractor.extract(content)
-        validation = self.validator.validate(fields)
-        relevance = self.gate.assess(content, fields)
-        dedup = self.deduper.register(content.doc_id, fields)
-        sender, received = "", ""
+
+        # Metadata is read once, here, because the enricher needs it BEFORE validation runs.
+        meta = None
         meta_fn = getattr(provider, "metadata", None)
         if callable(meta_fn):
             try:
                 meta = meta_fn(ref)
-                sender = getattr(meta, "source_sender", "") or ""
-                received = getattr(meta, "source_date", "") or ""
             except Exception:
-                pass
+                meta = None
+        if self.enricher is not None and meta is not None:
+            try:
+                self.enricher.enrich(fields, meta)
+            except Exception:
+                pass                      # a hint is a bonus; never fail a document over one
+
+        validation = self.validator.validate(fields)
+        relevance = self.gate.assess(content, fields)
+        dedup = self.deduper.register(content.doc_id, fields)
+        sender = getattr(meta, "source_sender", "") or "" if meta is not None else ""
+        received = getattr(meta, "source_date", "") or "" if meta is not None else ""
         record = self.builder.build(content, fields, validation, dedup, relevance,
                                     source_sender=sender, source_date=received)
         if self.store is not None:

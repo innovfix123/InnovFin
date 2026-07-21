@@ -8,11 +8,16 @@ the provider implementation, with zero change to OCR/AI.
 """
 
 from documents.models import DocumentMetadata, DocumentRef
-from documents.provider import DocumentProvider, RegistryDocumentProvider
+from documents.provider import (
+    DocumentProvider,
+    FilteredDocumentProvider,
+    RegistryDocumentProvider,
+)
 
 __all__ = [
     "DocumentRef",
     "DocumentMetadata",
     "DocumentProvider",
     "RegistryDocumentProvider",
+    "FilteredDocumentProvider",
 ]

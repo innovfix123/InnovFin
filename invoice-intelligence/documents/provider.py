@@ -63,6 +63,7 @@ class RegistryDocumentProvider:
             source_message_id=r.source_message_id,
             source_sender=getattr(r, "source_sender", "") or "",
             source_date=getattr(r, "source_date", "") or "",
+            source_ref=getattr(r, "source_ref", "") or "",
         )
 
     def _require(self, doc_id: str):
@@ -74,3 +75,35 @@ class RegistryDocumentProvider:
 
 def _doc_id(ref: DocumentRef | str) -> str:
     return ref.doc_id if isinstance(ref, DocumentRef) else str(ref)
+
+
+class FilteredDocumentProvider:
+    """Restricts an existing provider to the documents matching ``predicate``.
+
+    Exists because a source-specific run must not touch documents from another source. The Drive
+    ingest deliberately swaps in trusted-source semantics (always-an-invoice, never-needs-review);
+    pointed at the whole registry, a ``--reprocess`` pass would apply those semantics to mailbox
+    attachments too — silently re-labelling newsletters and Slack notifications as accepted
+    invoices, and force-accepting mail that genuinely needs a human. That is exactly what happened
+    the first time this ran: 75 ``not_invoice`` records became ``accepted``.
+
+    ``list_documents`` is narrowed; ``open``/``metadata`` still delegate for any doc_id, so a
+    caller holding a ref from elsewhere is not broken by the filter.
+    """
+
+    def __init__(self, inner, predicate) -> None:
+        self._inner = inner
+        self._predicate = predicate
+
+    def list_documents(self) -> list[DocumentRef]:
+        return [ref for ref in self._inner.list_documents()
+                if self._predicate(self._inner.metadata(ref))]
+
+    def open(self, ref: DocumentRef | str) -> bytes:
+        return self._inner.open(ref)
+
+    def metadata(self, ref: DocumentRef | str) -> DocumentMetadata:
+        return self._inner.metadata(ref)
+
+    def __getattr__(self, name):        # pass through registry, etc.
+        return getattr(self._inner, name)

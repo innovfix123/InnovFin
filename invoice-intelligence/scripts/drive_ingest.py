@@ -39,11 +39,12 @@ import yaml  # noqa: E402
 from attachments.classifier import classify  # noqa: E402
 from attachments.models import CollectedAttachment  # noqa: E402
 from attachments.registry import AttachmentRegistry  # noqa: E402
-from documents import RegistryDocumentProvider  # noqa: E402
+from documents import FilteredDocumentProvider, RegistryDocumentProvider  # noqa: E402
+from fields.drive_hints import DriveHintEnricher  # noqa: E402
 from pipeline import build_pipeline  # noqa: E402
 from storage.blob_store import FilesystemBlobStore  # noqa: E402
 from storage.invoice_store import build_invoice_store  # noqa: E402
-from validation import TrustedSourceRelevance  # noqa: E402
+from validation import TrustedSourceRelevance, TrustedSourceValidator  # noqa: E402
 
 CONFIG_NAMES = ("attachments", "doctype_detection", "extraction",
                 "field_patterns", "validation", "dedup", "storage")
@@ -64,6 +65,9 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0, help="ingest at most N documents (0 = all)")
     ap.add_argument("--reprocess", action="store_true", help="re-extract documents already stored")
     ap.add_argument("--dry-run", action="store_true", help="register nothing; just report what would be ingested")
+    ap.add_argument("--review", action="store_true",
+                    help="send imperfect documents to the review queue instead of accepting them "
+                         "(default: accept — this archive was already reviewed by finance)")
     args = ap.parse_args()
 
     manifest_path = Path(args.staging) / "manifest.json"
@@ -120,9 +124,21 @@ def main() -> int:
     store = build_invoice_store(cfgs["storage"])
     try:
         pipeline = build_pipeline(cfgs, store=store)
-        # The one behavioural difference from the mailbox run.
-        pipeline.gate = TrustedSourceRelevance("Drive purchases & expenses invoices folder")
-        provider = RegistryDocumentProvider(registry, blobs)
+        # The behavioural differences from the mailbox run — all three because this source is a
+        # curated, already-reviewed archive rather than an inbox.
+        label = "Drive purchases & expenses invoices folder"
+        pipeline.gate = TrustedSourceRelevance(label)
+        pipeline.enricher = DriveHintEnricher()
+        if not args.review:
+            pipeline.validator = TrustedSourceValidator(pipeline.validator, label)
+        # HARD SCOPE. The registry holds mailbox attachments too, and the three swaps above are
+        # only correct for the curated Drive archive. Without this filter a --reprocess run applies
+        # them to every email attachment as well: newsletters lose their `not_invoice` label and
+        # mail that genuinely needs a human is force-accepted.
+        provider = FilteredDocumentProvider(
+            RegistryDocumentProvider(registry, blobs),
+            lambda meta: (meta.source_message_id or "").startswith("drive:"),
+        )
         _, summary = pipeline.run(provider, reprocess=args.reprocess)
     finally:
         close = getattr(store, "close", None)

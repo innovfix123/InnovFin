@@ -73,3 +73,49 @@ def test_unknown_document_raises(tmp_path):
     provider = _provider_with_docs(tmp_path)
     with pytest.raises(KeyError):
         provider.open("deadbeef")
+
+
+class TestFilteredDocumentProvider:
+    """A source-specific run must never process another source's documents.
+
+    Regression guard: the Drive ingest swaps in trusted-source relevance + validation. Run against
+    the whole registry it turned 75 mailbox `not_invoice` records into `accepted` invoices.
+    """
+
+    class _Meta:
+        def __init__(self, doc_id, source_message_id):
+            self.doc_id = doc_id
+            self.source_message_id = source_message_id
+
+    class _Inner:
+        def __init__(self):
+            self.refs = ["a", "b", "c"]
+            self._src = {"a": "drive:1", "b": "<mail@x>", "c": "drive:2"}
+
+        def list_documents(self):
+            return list(self.refs)
+
+        def metadata(self, ref):
+            return TestFilteredDocumentProvider._Meta(ref, self._src[ref])
+
+        def open(self, ref):
+            return b"bytes-of-" + ref.encode()
+
+    def _drive_only(self):
+        from documents import FilteredDocumentProvider
+        return FilteredDocumentProvider(
+            self._Inner(),
+            lambda m: (m.source_message_id or "").startswith("drive:"),
+        )
+
+    def test_lists_only_matching_documents(self):
+        assert self._drive_only().list_documents() == ["a", "c"]
+
+    def test_open_and_metadata_still_delegate_for_any_id(self):
+        p = self._drive_only()
+        assert p.open("b") == b"bytes-of-b"          # not listed, but still resolvable
+        assert p.metadata("b").source_message_id == "<mail@x>"
+
+    def test_unknown_attributes_pass_through(self):
+        p = self._drive_only()
+        assert p.refs == ["a", "b", "c"]

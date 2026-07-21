@@ -92,3 +92,63 @@ def test_from_config_overrides():
     v = InvoiceValidator.from_config({"min_confidence": 0.9, "amount_tolerance": 0.0})
     assert v.min_confidence == 0.9
     assert v.amount_tolerance == 0.0
+
+
+class TestOidarGstin:
+    """Non-resident OIDAR suppliers (Anthropic, Meta, Agora, DigitalOcean) use a second scheme.
+
+    Nine documents in the 50-document Drive pilot failed validation as "malformed GSTIN" on
+    9924USA29003OSI — a genuine, correctly-printed non-resident registration.
+    """
+
+    def test_real_oidar_gstins_are_accepted(self):
+        from validation import is_oidar_gstin, is_valid_gstin
+        for g in ("9924USA29003OSI", "9917USA29016OSD", "9917USA29001OS2"):
+            assert is_oidar_gstin(g), g
+            assert is_valid_gstin(g), g
+
+    def test_domestic_checksum_is_not_applied_to_them(self):
+        """These trailing characters are not domestic check digits; requiring one rejects real
+        registrations. 9917USA29016OSD would need 'S6' to pass the base-36 algorithm."""
+        from validation import gstin_checksum, is_valid_gstin
+        assert gstin_checksum("9917USA29016OS") != "D"
+        assert is_valid_gstin("9917USA29016OSD")
+
+    def test_domestic_gstins_still_get_the_checksum_check(self):
+        from validation import is_oidar_gstin, is_valid_gstin
+        assert not is_oidar_gstin("27AABCU9603R1ZN")
+        assert not is_valid_gstin("27AABCU9603R1ZZ")
+
+    def test_near_misses_are_still_rejected(self):
+        from validation import is_valid_gstin
+        assert not is_valid_gstin("9924USA29003XXI")    # not an OS (online services) registration
+        assert not is_valid_gstin("8824USA29003OSI")    # does not start 99
+        assert not is_valid_gstin("9924US29003OSI")     # country is not 3 letters
+
+
+class TestTrustedSourceValidator:
+    """Documents finance already reviewed skip our queue without losing their audit trail."""
+
+    def _incomplete(self):
+        from fields.models import InvoiceFields
+        f = InvoiceFields()
+        f.set("invoice_number", "INV-1", 0.6, "text:invoice_number")
+        return f                                  # no total, no gstin, no date
+
+    def test_plain_validator_sends_an_incomplete_document_to_review(self):
+        from validation import InvoiceValidator
+        assert InvoiceValidator().validate(self._incomplete()).needs_review is True
+
+    def test_trusted_validator_does_not(self):
+        from validation import TrustedSourceValidator
+        assert TrustedSourceValidator().validate(self._incomplete()).needs_review is False
+
+    def test_but_it_still_records_every_failure(self):
+        """It changes the QUEUE, not the FACTS — the errors stay attached and searchable."""
+        from validation import InvoiceValidator, TrustedSourceValidator
+        plain = InvoiceValidator().validate(self._incomplete())
+        trusted = TrustedSourceValidator().validate(self._incomplete())
+        assert trusted.errors == plain.errors
+        assert trusted.checks == plain.checks
+        assert trusted.confidence == plain.confidence
+        assert any("total" in e for e in trusted.errors)

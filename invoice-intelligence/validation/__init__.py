@@ -5,13 +5,13 @@ arithmetic reconciliation and mandatory fields; computes an overall confidence s
 failing a mandatory check or below the confidence threshold is flagged for Manual Review.
 """
 
-from validation.engine import InvoiceValidator
-from validation.gstin import gstin_checksum, is_valid_gstin
+from validation.engine import InvoiceValidator, TrustedSourceValidator
+from validation.gstin import gstin_checksum, is_oidar_gstin, is_valid_gstin
 from validation.models import FieldValidation, ValidationResult
 from validation.relevance import InvoiceRelevance, RelevanceResult, TrustedSourceRelevance
 
 __all__ = [
-    "InvoiceValidator", "ValidationResult", "FieldValidation",
+    "InvoiceValidator", "TrustedSourceValidator", "ValidationResult", "FieldValidation",
     "InvoiceRelevance", "RelevanceResult", "TrustedSourceRelevance",
-    "is_valid_gstin", "gstin_checksum",
+    "is_valid_gstin", "is_oidar_gstin", "gstin_checksum",
 ]
