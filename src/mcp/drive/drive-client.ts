@@ -2,10 +2,10 @@
  * Folder-scoped Google Drive v3 REST client for the Drive MCP.
  *
  * SINGLE SOURCE OF TRUTH: every method reads live from Drive on each call — nothing is persisted, no
- * file bytes are stored. The only cache is a 60s in-memory list of the folder-subtree's folder IDs
- * (pure metadata), so we don't re-walk the tree on every search. That satisfies the "may cache
- * metadata, never content" rule while guaranteeing freshness stays within ~60s for the *shape* of the
- * tree and fully live for file contents/metadata.
+ * file bytes are stored. The only cache is an in-memory map of the folder-subtree's SHAPE (folder IDs
+ * and ancestry — pure metadata), so we don't re-walk 1,473 folders on every search. Contents, listings
+ * and file metadata are always fetched live, so what a user reads is never stale; only the tree's shape
+ * can lag, by at most FOLDER_CACHE_TTL_MS, and our own writes invalidate it immediately.
  *
  * SCOPING: the MCP is bound to ONE folder (DRIVE_FOLDER_ID). Reads are constrained to that folder and
  * its descendants — the client cannot see anything outside the tree, by construction.
@@ -20,9 +20,22 @@ import { envVar } from "./env";
 const API = "https://www.googleapis.com/drive/v3";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const MAX_RESULTS = 1000; // hard cap on rows any one tool returns
-const FOLDER_CACHE_TTL_MS = 60_000;
-/** Runaway guard for the subtree walk. Was 500, which this folder exceeds — see descendantFolderIds. */
+/**
+ * How long the folder STRUCTURE may be reused. Measured on the live folder: 1,473 folders, 12 levels,
+ * 44 API calls and ~24s to walk. At the old 60s that walk was being repeated for almost every request,
+ * which was the single biggest cause of slow tool calls. Only the shape of the tree is cached — file
+ * content and listings are always fetched live, so nothing a user reads can be stale. A folder created
+ * or moved outside this process shows up within the TTL; our own writes invalidate it immediately.
+ */
+const FOLDER_CACHE_TTL_MS = 10 * 60_000;
+/** Runaway guard for the subtree walk. Was 500, which this folder (1,473 folders) silently exceeded. */
 const MAX_SUBTREE_FOLDERS = 5000;
+/**
+ * Parents per `'<id>' in parents` query. Drive caps the q string, not the parent count: measured live,
+ * 200 parents (~10k chars) returns 200 OK and 400 parents (~20k) is rejected. 150 keeps a margin for
+ * the search term. At 40 this folder needed 37 round trips per search; at 150 it needs 10.
+ */
+const PARENTS_PER_QUERY = 150;
 
 export interface DriveFile {
   id: string;
@@ -135,7 +148,7 @@ async function listAll(q: string, orderBy?: string, cap = MAX_RESULTS): Promise<
   const out: DriveFile[] = [];
   let pageToken: string | undefined;
   do {
-    const { files, nextPageToken } = await listPage(q, { orderBy, pageSize: 200, pageToken });
+    const { files, nextPageToken } = await listPage(q, { orderBy, pageSize: 1000, pageToken });
     out.push(...files);
     pageToken = nextPageToken;
   } while (pageToken && out.length < cap);
@@ -143,8 +156,8 @@ async function listAll(q: string, orderBy?: string, cap = MAX_RESULTS): Promise<
 }
 
 // ---------------------------------------------------------------------------------------------------
-// Subtree scoping — cache the set of folder IDs under the root for 60s so search/latest can constrain
-// to the whole tree without re-walking every call.
+// Subtree scoping — cache the set of folder IDs under the root so search/latest can constrain to the
+// whole tree without re-walking it (1,473 folders / ~24s) on every call.
 // ---------------------------------------------------------------------------------------------------
 let folderSetCache: { ids: string[]; at: number } | null = null;
 /** Set when the subtree walk hit its guard, so a partial search can say so instead of looking complete. */
@@ -207,17 +220,21 @@ async function descendantFolderIds(): Promise<string[]> {
   // anyone should hit; searchSubtree reports when it bites so a partial sweep never reads as complete.
   while (frontier.length && all.size < MAX_SUBTREE_FOLDERS) {
     const next: string[] = [];
-    // Query children-that-are-folders for up to ~40 parents at a time (query length safety).
-    for (let i = 0; i < frontier.length; i += 40) {
-      const batch = frontier.slice(i, i + 40);
-      const parentClause = batch.map((id) => `'${esc(id)}' in parents`).join(" or ");
-      const q = `mimeType='${FOLDER_MIME}' and trashed=false and (${parentClause})`;
-      const kids = await listAll(q, undefined, 500);
-      for (const k of kids) {
-        if (!all.has(k.id)) {
-          all.add(k.id);
-          next.push(k.id);
-        }
+    // One query per PARENTS_PER_QUERY parents; the batches within a level are independent, so run them
+    // concurrently. Levels still go one at a time — a level's children define the next frontier.
+    const batches: string[][] = [];
+    for (let i = 0; i < frontier.length; i += PARENTS_PER_QUERY) batches.push(frontier.slice(i, i + PARENTS_PER_QUERY));
+    const levels = await mapLimit(batches, QUERY_CONCURRENCY, (batch) =>
+      listAll(
+        `mimeType='${FOLDER_MIME}' and trashed=false and (${batch.map((id) => `'${esc(id)}' in parents`).join(" or ")})`,
+        undefined,
+        MAX_SUBTREE_FOLDERS,
+      ),
+    );
+    for (const k of levels.flat()) {
+      if (!all.has(k.id)) {
+        all.add(k.id);
+        next.push(k.id);
       }
     }
     frontier = next;
@@ -231,11 +248,34 @@ async function descendantFolderIds(): Promise<string[]> {
 async function subtreeParentClauses(): Promise<string[]> {
   const ids = await descendantFolderIds();
   const chunks: string[] = [];
-  for (let i = 0; i < ids.length; i += 40) {
-    chunks.push(ids.slice(i, i + 40).map((id) => `'${esc(id)}' in parents`).join(" or "));
+  for (let i = 0; i < ids.length; i += PARENTS_PER_QUERY) {
+    chunks.push(ids.slice(i, i + PARENTS_PER_QUERY).map((id) => `'${esc(id)}' in parents`).join(" or "));
   }
   return chunks;
 }
+
+/**
+ * Run `fn` over `items` with bounded concurrency.
+ *
+ * The subtree is queried in chunks of PARENTS_PER_QUERY, and running those chunks one after another
+ * was what made searching feel slow — 10 sequential round trips at ~1.5s each. They are independent
+ * queries, so they overlap; the bound keeps us clear of Drive's per-user rate limit (driveFetch still
+ * backs off if we do hit it).
+ */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+const QUERY_CONCURRENCY = 6;
 
 /** Merge + de-dup files from multiple chunked queries, keeping the first occurrence. */
 function dedup(files: DriveFile[]): DriveFile[] {
@@ -290,11 +330,14 @@ export async function searchSubtree(
   const raw = text.trim();
   const term = esc(raw);
   const chunks = await subtreeParentClauses();
-  const all: DriveFile[] = [];
-  for (const clause of chunks) {
-    const q = `trashed=false and (${clause}) and (name contains '${term}' or fullText contains '${term}')`;
-    all.push(...(await listAll(q, "modifiedTime desc")));
-  }
+  const all = (
+    await mapLimit(chunks, QUERY_CONCURRENCY, (clause) =>
+      listAll(
+        `trashed=false and (${clause}) and (name contains '${term}' or fullText contains '${term}')`,
+        "modifiedTime desc",
+      ),
+    )
+  ).flat();
   const needle = raw.toLowerCase();
   const merged = dedup(all).sort((a, b) => {
     const an = a.name.toLowerCase().includes(needle) ? 0 : 1;
@@ -312,11 +355,15 @@ export async function searchSubtree(
 /** Most-recently-modified files across the subtree. */
 export async function latestInSubtree(limit: number): Promise<DriveFile[]> {
   const chunks = await subtreeParentClauses();
-  const all: DriveFile[] = [];
-  for (const clause of chunks) {
-    const q = `trashed=false and mimeType!='${FOLDER_MIME}' and (${clause})`;
-    all.push(...(await listAll(q, "modifiedTime desc", Math.max(limit, 50))));
-  }
+  const all = (
+    await mapLimit(chunks, QUERY_CONCURRENCY, (clause) =>
+      listAll(
+        `trashed=false and mimeType!='${FOLDER_MIME}' and (${clause})`,
+        "modifiedTime desc",
+        Math.max(limit, 50),
+      ),
+    )
+  ).flat();
   return dedup(all)
     .sort((a, b) => (b.modifiedTime ?? "").localeCompare(a.modifiedTime ?? ""))
     .slice(0, limit);

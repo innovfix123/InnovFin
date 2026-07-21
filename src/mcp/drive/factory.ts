@@ -45,7 +45,7 @@ const TEXT_CAP = 200_000;
  * and Word files. Together these are ~17% of the connected folder — receipts, signed agreements — and
  * without conversion every one of them is unanswerable.
  */
-const CONVERTIBLE = /^image\/|wordprocessingml\.document$|^application\/msword$|^application\/rtf$/i;
+const CONVERTIBLE = /^image\/|wordprocessingml\.document$|^application\/msword$|^(application|text)\/rtf$/i;
 
 /**
  * Uploads that really are text. Anchored on purpose: the old test was /^text\/|json|xml|csv/i, and
