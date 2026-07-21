@@ -21,6 +21,8 @@ const API = "https://www.googleapis.com/drive/v3";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const MAX_RESULTS = 1000; // hard cap on rows any one tool returns
 const FOLDER_CACHE_TTL_MS = 60_000;
+/** Runaway guard for the subtree walk. Was 500, which this folder exceeds — see descendantFolderIds. */
+const MAX_SUBTREE_FOLDERS = 5000;
 
 export interface DriveFile {
   id: string;
@@ -145,14 +147,65 @@ async function listAll(q: string, orderBy?: string, cap = MAX_RESULTS): Promise<
 // to the whole tree without re-walking every call.
 // ---------------------------------------------------------------------------------------------------
 let folderSetCache: { ids: string[]; at: number } | null = null;
+/** Set when the subtree walk hit its guard, so a partial search can say so instead of looking complete. */
+let subtreeWalkTruncated = false;
+
+/**
+ * Is this file/folder inside the configured tree? Walks UP from its parents to the root.
+ *
+ * Scope used to be decided by enumerating the whole subtree and checking membership — but that walk
+ * is capped, and the connected folder is past the cap. Everything discovered after it was reported
+ * "outside the configured folder subtree" and became unreadable, even though it sits well inside the
+ * folder. Walking upward costs a couple of lookups per check and is independent of how big the tree
+ * gets, so scope can no longer be wrong because a folder is deep or the tree grew.
+ */
+const ancestryCache = new Map<string, { ok: boolean; at: number }>();
+
+async function parentsOf(id: string): Promise<string[]> {
+  const json = await driveJson<{ parents?: string[] }>(
+    `/files/${encodeURIComponent(id)}?fields=parents&supportsAllDrives=true`,
+  );
+  return json.parents ?? [];
+}
+
+async function ancestorsReachRoot(parents: string[]): Promise<boolean> {
+  const root = rootFolderId();
+  const now = Date.now();
+  const visited: string[] = [];
+  let frontier = parents.filter(Boolean);
+
+  const remember = (ok: boolean) => {
+    for (const id of visited) ancestryCache.set(id, { ok, at: now });
+    return ok;
+  };
+
+  // Drive folders can have several parents, so this is a small BFS upward rather than a single chain.
+  for (let depth = 0; depth < 25 && frontier.length; depth++) {
+    if (frontier.includes(root)) return remember(true);
+    const next: string[] = [];
+    for (const id of frontier) {
+      if (visited.includes(id)) continue;
+      const cached = ancestryCache.get(id);
+      if (cached && now - cached.at < FOLDER_CACHE_TTL_MS) {
+        if (cached.ok) return remember(true);
+        continue; // known-outside: no need to climb it again
+      }
+      visited.push(id);
+      next.push(...(await parentsOf(id)));
+    }
+    frontier = next;
+  }
+  return remember(false);
+}
 
 async function descendantFolderIds(): Promise<string[]> {
   if (folderSetCache && Date.now() - folderSetCache.at < FOLDER_CACHE_TTL_MS) return folderSetCache.ids;
   const root = rootFolderId();
   const all = new Set<string>([root]);
   let frontier = [root];
-  // Bounded BFS: cap total folders so a pathological tree can't blow up the query.
-  while (frontier.length && all.size < 500) {
+  // Bounded BFS, used only to build search's parent clauses. The cap is a runaway guard, not a limit
+  // anyone should hit; searchSubtree reports when it bites so a partial sweep never reads as complete.
+  while (frontier.length && all.size < MAX_SUBTREE_FOLDERS) {
     const next: string[] = [];
     // Query children-that-are-folders for up to ~40 parents at a time (query length safety).
     for (let i = 0; i < frontier.length; i += 40) {
@@ -169,6 +222,7 @@ async function descendantFolderIds(): Promise<string[]> {
     }
     frontier = next;
   }
+  subtreeWalkTruncated = all.size >= MAX_SUBTREE_FOLDERS;
   folderSetCache = { ids: [...all], at: Date.now() };
   return folderSetCache.ids;
 }
@@ -202,7 +256,13 @@ function dedup(files: DriveFile[]): DriveFile[] {
 
 /** True if `folderId` is the root or a descendant folder of it (guards drill-down requests). */
 export async function isInScope(folderId: string): Promise<boolean> {
-  return (await descendantFolderIds()).includes(folderId);
+  const id = folderId.trim();
+  if (id === rootFolderId()) return true;
+  try {
+    return await ancestorsReachRoot(await parentsOf(id));
+  } catch {
+    return false; // unreadable / non-existent id is not in scope
+  }
 }
 
 /** Direct children of a folder (default: the root). Includes subfolders. */
@@ -224,7 +284,9 @@ export async function listChildren(folderId?: string): Promise<DriveFile[]> {
  * hoisted above body-text matches: someone searching "bank statement" wants the file called that, not
  * every document that mentions the phrase.
  */
-export async function searchSubtree(text: string): Promise<{ files: DriveFile[]; capped: boolean }> {
+export async function searchSubtree(
+  text: string,
+): Promise<{ files: DriveFile[]; capped: boolean; partialSubtree: boolean }> {
   const raw = text.trim();
   const term = esc(raw);
   const chunks = await subtreeParentClauses();
@@ -240,7 +302,11 @@ export async function searchSubtree(text: string): Promise<{ files: DriveFile[];
     if (an !== bn) return an - bn;
     return (b.modifiedTime ?? "").localeCompare(a.modifiedTime ?? "");
   });
-  return { files: merged.slice(0, MAX_RESULTS), capped: merged.length > MAX_RESULTS };
+  return {
+    files: merged.slice(0, MAX_RESULTS),
+    capped: merged.length > MAX_RESULTS,
+    partialSubtree: subtreeWalkTruncated,
+  };
 }
 
 /** Most-recently-modified files across the subtree. */
@@ -262,9 +328,7 @@ export async function getMetadata(fileId: string): Promise<DriveFile> {
     `/files/${encodeURIComponent(fileId)}?fields=${encodeURIComponent(FILE_FIELDS)}&supportsAllDrives=true`,
   );
   const file = shape(json);
-  const parents = file.parents ?? [];
-  const scoped = await descendantFolderIds();
-  if (!parents.some((p) => scoped.includes(p))) {
+  if (!(await ancestorsReachRoot(file.parents ?? []))) {
     throw new Error(`Drive MCP: file ${fileId} is not inside the configured folder`);
   }
   return file;

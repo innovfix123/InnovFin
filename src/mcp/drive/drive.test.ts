@@ -451,6 +451,42 @@ describe("answering from a file — the failure modes that return wrong data qui
     delete process.env.DRIVE_MCP_WRITE;
   });
 
+  it("keeps a deeply-nested file in scope no matter how big the folder tree is", async () => {
+    // Scope was decided by enumerating the subtree and checking membership, and that walk is capped.
+    // Past the cap, real files inside the folder were refused as "outside the configured folder
+    // subtree" — unreadable, with an error blaming the caller. Scope now climbs from the file to the
+    // root, so it cannot depend on tree size. The stub answers the walk but NEVER the enumeration.
+    clearGoogleEnv();
+    process.env.GOOGLE_OAUTH_CLIENT_ID = "c";
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = "s";
+    process.env.GOOGLE_OAUTH_REFRESH_TOKEN = "r";
+    process.env.DRIVE_FOLDER_ID = "ROOT";
+    vi.doUnmock("./drive-client");
+    vi.resetModules();
+
+    // deep -> mid -> near -> ROOT, i.e. four levels down.
+    const parents: Record<string, string[]> = { deep: ["mid"], mid: ["near"], near: ["ROOT"], outside: ["elsewhere"], elsewhere: [] };
+    vi.stubGlobal("fetch", async (url: string) => {
+      const ok = (b: unknown) => ({ ok: true, status: 200, json: async () => b, text: async () => "", clone() { return this; } }) as unknown as Response;
+      if (url.includes("oauth2.googleapis.com")) return ok({ access_token: "t", expires_in: 3599 });
+      const m = /files\/([^?]+)/.exec(url);
+      if (m) {
+        const id = decodeURIComponent(m[1]);
+        return ok({ id, name: `${id}.pdf`, mimeType: "application/pdf", parents: parents[id] ?? [] });
+      }
+      // The subtree enumeration must not be what decides this.
+      return ok({ files: [] });
+    });
+
+    const { getMetadata, isInScope } = await import("./drive-client");
+    await expect(getMetadata("deep")).resolves.toMatchObject({ id: "deep" });
+    expect(await isInScope("mid")).toBe(true);
+    expect(await isInScope("outside")).toBe(false);
+    await expect(getMetadata("outside")).rejects.toThrow(/not inside the configured folder/);
+
+    vi.unstubAllGlobals();
+  });
+
   it("reports a capped search as capped, so the list is not read as every match", async () => {
     const out = await callTool(
       "drive_search_files",

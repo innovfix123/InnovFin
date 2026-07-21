@@ -155,14 +155,17 @@ export function registerDriveTools(server: McpServer): McpServer {
       inputSchema: { query: z.string().min(1).describe("name or content to search for within the folder") },
     },
     async ({ query }) => {
-      const { files, capped } = await searchSubtree(query);
+      const { files, capped, partialSubtree } = await searchSubtree(query);
+      const notes = [
+        capped && `More than ${files.length} files match — this is the capped, newest-first list with filename matches first. Narrow the query rather than assuming this is every match.`,
+        partialSubtree && "The folder tree is larger than this search can sweep, so some subfolders were not searched. Browse with drive_list_files if you expect a file that isn't here.",
+      ].filter(Boolean);
       return jsonText({
         query,
         count: files.length,
         capped,
-        ...(capped
-          ? { note: `More than ${files.length} files match — this is the capped, newest-first list with filename matches first. Narrow the query rather than assuming this is every match.` }
-          : {}),
+        ...(partialSubtree ? { partialSubtree } : {}),
+        ...(notes.length ? { note: notes.join(" ") } : {}),
         files: files.map(brief),
       });
     },

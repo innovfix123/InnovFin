@@ -32,7 +32,7 @@ async function main(): Promise<void> {
   console.error("\n3) drive_search_files (first token of first file name) …");
   const term = (children.find((c) => c.kind === "file")?.name ?? "invoice").split(/\s+/)[0];
   const hits = await searchSubtree(term);
-  console.error(`   query="${term}" → ${hits.files.length} hits${hits.capped ? " (capped)" : ""}`);
+  console.error(`   query="${term}" → ${hits.files.length} hits${hits.capped ? " (capped)" : ""}${hits.partialSubtree ? " (partial subtree!)" : ""}`);
 
   console.error("\n4) read a document via the Drive tools …");
   const readable = latest.find((f) => [MIME.DOC, MIME.SHEET, MIME.PDF].includes(f.mimeType as never) || /^text\//.test(f.mimeType));
