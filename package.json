@@ -31,7 +31,8 @@
     "mcp:invoice:pipeline": "cd invoice-intelligence && .venv/bin/python cli.py collect && .venv/bin/python cli.py pipeline",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "drive:stage-invoices": "tsx --env-file=.env src/mcp/drive/stage-invoices.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

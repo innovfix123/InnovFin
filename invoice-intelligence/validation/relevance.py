@@ -120,3 +120,26 @@ def _num(value: Any) -> float | None:
         return float(s)
     except ValueError:
         return None
+
+
+class TrustedSourceRelevance:
+    """Relevance gate for documents that are invoices *by where they came from*.
+
+    The scoring gate above exists because the central mailbox is fed by a deliberately broad
+    routing rule, so it also receives marketing mail and newsletters. Documents pulled from the
+    finance Drive folder's purchase-invoice tree have no such problem: a human already filed them
+    under a vendor, in a month folder, inside "Purchases & Expenses Invoices". Scoring them again
+    would mark a genuine invoice ``not_invoice`` purely because OCR read its GSTIN badly — losing a
+    real purchase document to a precision filter that was never meant for this source.
+
+    So this gate always answers "yes, invoice". It does NOT make a document ``accepted``: field
+    extraction and validation still run unchanged, so anything with missing or unreadable fields
+    still lands in ``needs_review`` for a human. The only thing removed is the ``not_invoice``
+    verdict, and the reason trace records why.
+    """
+
+    def __init__(self, source_label: str = "curated invoice folder") -> None:
+        self.source_label = source_label
+
+    def assess(self, content: Any, fields: InvoiceFields) -> RelevanceResult:  # noqa: ARG002
+        return RelevanceResult(True, 0.0, (f"trusted source: {self.source_label}",))

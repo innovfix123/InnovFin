@@ -8,10 +8,10 @@ failing a mandatory check or below the confidence threshold is flagged for Manua
 from validation.engine import InvoiceValidator
 from validation.gstin import gstin_checksum, is_valid_gstin
 from validation.models import FieldValidation, ValidationResult
-from validation.relevance import InvoiceRelevance, RelevanceResult
+from validation.relevance import InvoiceRelevance, RelevanceResult, TrustedSourceRelevance
 
 __all__ = [
     "InvoiceValidator", "ValidationResult", "FieldValidation",
-    "InvoiceRelevance", "RelevanceResult",
+    "InvoiceRelevance", "RelevanceResult", "TrustedSourceRelevance",
     "is_valid_gstin", "gstin_checksum",
 ]
