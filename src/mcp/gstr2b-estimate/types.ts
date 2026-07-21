@@ -18,6 +18,37 @@ export interface ItcHeads {
   cess: number;
 }
 
+/** One charge row parsed from an invoice's line-item table (see line-items.ts). `charge` is the
+ *  taxable fee for the row; `amountTransacted` is the underlying transaction volume and is NOT
+ *  taxable. `category` is the invoice's own section grouping (e.g. Cashfree PAYOUT / PAYMENT GATEWAY). */
+export interface InvoiceLineItem {
+  category: string | null;
+  description: string;
+  hsnSac: string;
+  gstRatePct: number;
+  quantity: number;
+  amountTransacted: number;
+  charge: number;
+}
+
+/** Per-category subtotal of the line charges. */
+export interface LineItemCategory {
+  category: string;
+  lines: number;
+  charge: number;
+}
+
+/** The per-line composition of an invoice's taxable value, surfaced on each itc_invoices line so a
+ *  reader sees WHERE the taxable (and hence the CGST/SGST/IGST) comes from — not just the totals. */
+export interface LineItemBreakdown {
+  source: string;                       // which parser produced it, e.g. "cashfree-tax-invoice"
+  count: number;
+  items: InvoiceLineItem[];
+  byCategory: LineItemCategory[];
+  taxableFromLines: number;             // Σ charge — should tie back to the invoice's taxable value
+  reconcilesToTaxable: boolean | null;  // Σ charge ≈ taxableValue (±₹1); null when taxable unknown
+}
+
 /** One vendor invoice mapped out of the registry's canonical document. GST amounts exist only when
  *  the extractor found them (see invoice-intelligence/fields/models.py CANONICAL_FIELDS). */
 export interface RegistryInvoice {
@@ -37,6 +68,8 @@ export interface RegistryInvoice {
   total: number | null;        // incl-GST — display/sanity only
   hsnSac: string | null;
   sender: string | null;
+  /** Per-line charge composition parsed from the invoice text; null when the format isn't parsed. */
+  lineItems?: LineItemBreakdown | null;
 }
 
 /** Why a line routes to the review bucket instead of the headline estimate. */
@@ -74,6 +107,8 @@ export interface EstimateLine {
   /** true → counted in the headline estimate; false → review bucket (see flags). */
   included: boolean;
   flags: EligibilityFlag[];
+  /** Where the taxable value comes from — per-service charge rows; null when not parseable. */
+  lineItems?: LineItemBreakdown | null;
 }
 
 /** Per-vendor (GSTIN) roll-up of the headline estimate. */
@@ -110,7 +145,8 @@ export interface ItcEstimate {
     inPeriod: number;        // dated inside the period
     undated: number;         // no invoice_date → review bucket (NO_DATE)
     outOfPeriod: number;     // dated another month → not this period's estimate
-    needsReviewPending: { count: number; totalInclGst: number } | null;
+    /** `totalInclGst` is RUPEES ONLY; foreign-currency rows are kept apart, never summed in. */
+    needsReviewPending: { count: number; totalInclGst: number; foreignInclGst: Record<string, number> } | null;
   };
   estimate: {
     invoices: number;

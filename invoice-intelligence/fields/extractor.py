@@ -28,6 +28,16 @@ _RATE = r"(?:\D*?\d{1,2}(?:\.\d+)?\s*%)?"
 # A foreign OIDAR supplier (e.g. Anthropic/Stripe billing an Indian buyer) carries a non-standard
 # "99…" registration that deliberately does NOT match this shape — see _reconcile_gstins().
 _GSTIN = r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Zz][0-9A-Za-z]"
+# The non-resident / OIDAR registration a foreign supplier prints instead of a GSTIN
+# (e.g. Anthropic's 9924USA29003OSI): 15 chars, "99" country prefix, and deliberately NOT the
+# standard shape above. Only ever read under an explicit seller-side registration label —
+# see _rescue_oidar_vendor() — never grabbed label-lessly.
+_NONRESIDENT_REG = r"99[A-Za-z0-9]{13}"
+_OIDAR_LABELLED = re.compile(
+    r"(?:vat\s*registration|gst\s*registration|non[-\s]?resident|oidar)"
+    r"[^\n]{0,40}?[:\s]\s*(" + _NONRESIDENT_REG + r")\b",
+    re.IGNORECASE,
+)
 # Currencies recognised as an explicit ISO token; the symbol->code fallback below covers PDFs that
 # print only a symbol ("$100.00") with no code.
 _CURRENCY_CODE = r"USD|INR|EUR|GBP|SGD|AED|AUD|CAD|JPY|CNY|CHF|HKD"
@@ -46,18 +56,29 @@ _DEFAULT_PATTERNS = {
                       r"([A-Za-z0-9][A-Za-z0-9\-\/]{2,})",
     # Any of the common date labels (including a bare "date"), then the value — `\s*` spans the
     # newline that separates a label from its value in many PDF text extractions.
+    # `date paid` is how a paid RECEIPT (as opposed to an invoice) dates itself — Anthropic/Stripe
+    # receipts carry no "invoice date" at all, and without this the line has no period to sit in.
     "invoice_date": r"\b(?:invoice\s*date|inv\.?\s*date|bill\s*date|date\s*of\s*issue|"
-                    r"issue\s*date|dated|date)\b\s*[:\-]?\s*(" + _DATE_VAL + r")",
+                    r"issue\s*date|date\s*paid|dated|date)\b\s*[:\-]?\s*(" + _DATE_VAL + r")",
     "due_date": r"\b(?:due\s*date|date\s*due|payment\s*due)\b\s*[:\-]?\s*(" + _DATE_VAL + r")",
-    "po_number": r"(?:p\.?o\.?|purchase\s*order)\s*(?:no|number|#)?\.?\s*[:\-]?\s*([A-Za-z0-9\-\/]{2,})",
+    # `\b` + `(?![A-Za-z])` stop the label matching the "po" INSIDE a word — without them
+    # "support@anthropic.com" yields po_number "rt". Requiring a digit in the value stops the
+    # postal "P.O. Box 104477" on a US supplier's remittance block yielding po_number "Box".
+    "po_number": r"\b(?:p\.?o\.?|purchase\s*order)(?![A-Za-z])\s*(?:no|number|#)?\.?\s*[:\-]?\s*"
+                 r"(?=[A-Za-z0-9\-\/]{2,})([A-Za-z0-9\-\/]*\d[A-Za-z0-9\-\/]*)",
     "hsn_sac": r"(?:hsn|sac)\s*(?:code)?\s*[:\-]?\s*(\d{4,8})",
     "cgst": r"cgst" + _RATE + r"\D{0,12}?" + _AMOUNT,
     "sgst": r"sgst" + _RATE + r"\D{0,12}?" + _AMOUNT,
     "igst": r"igst" + _RATE + r"\D{0,12}?" + _AMOUNT,
     "taxable_value": r"(?:taxable\s*(?:value|amount)?|assessable\s*value)\D{0,12}?" + _AMOUNT,
-    "total": r"(?:grand\s*total|total\s*amount|total\s*value|total\s*invoice\s*value|"
+    # Two ways in, ONE capture group. The labelled forms tolerate up to 12 filler non-digits; the
+    # bare `total` (all a receipt prints) instead demands a currency symbol immediately before the
+    # number, so a stray "Total Qty 5" column header can never be read as the invoice total.
+    # `\b` keeps bare `total` from matching inside "Subtotal".
+    "total": r"(?:(?:grand\s*total|total\s*amount|total\s*value|total\s*invoice\s*value|"
              r"invoice\s*value|invoice\s*total|amount\s*payable|amount\s*due|balance\s*due|"
-             r"net\s*payable|total\s*payable)\D{0,12}?" + _AMOUNT,
+             r"net\s*payable|total\s*payable|amount\s*paid)\D{0,12}?"
+             r"|\btotal\b\s*[:\-]?\s*[₹$€£]\s*)" + _AMOUNT,
     "currency": r"\b(" + _CURRENCY_CODE + r")\b",
 }
 _AMOUNT_FIELDS = {"cgst", "sgst", "igst", "taxable_value", "total", "cess"}
@@ -194,6 +215,7 @@ class FieldExtractor:
                 value = _num(value)
             f.set(name, value, 0.6, f"text:{name}")
         self._reconcile_gstins(f)
+        self._rescue_oidar_vendor(text, f)
         self._infer_currency_symbol(text, f)
 
     def _reconcile_gstins(self, f: InvoiceFields) -> None:
@@ -213,6 +235,25 @@ class FieldExtractor:
             return
         if vendor.value == buyer.value and vendor.source.startswith("text:"):
             del f.fields["vendor_gstin"]
+
+    def _rescue_oidar_vendor(self, text: str, f: InvoiceFields) -> None:
+        """Record the foreign seller's non-resident registration as the vendor, when labelled.
+
+        After _reconcile_gstins() drops our own bill-to GSTIN, an OIDAR invoice would otherwise
+        carry NO vendor at all — and downstream that reads as "supplier unknown" (possibly an
+        unregistered domestic vendor) rather than the truth: an import of service. Recording the
+        "99…" registration keeps it OUT of the standard-GSTIN path (it still fails validation and
+        still routes to review) while naming the real reason — the estimated-2B engine reads a
+        "99" prefix as a non-resident/OIDAR supply, i.e. RCM territory, never a 2B B2B credit.
+
+        Only fills a vendor we don't already have, and only from an explicit registration label,
+        so a genuine domestic vendor is never displaced.
+        """
+        if f.get("vendor_gstin") is not None:
+            return
+        m = _OIDAR_LABELLED.search(text)
+        if m:
+            f.set("vendor_gstin", m.group(1).upper(), 0.6, "text:vendor_gstin_oidar")
 
     def _infer_currency_symbol(self, text: str, f: InvoiceFields) -> None:
         """Fallback when no explicit ISO code (USD/INR/…) was found: map a currency SYMBOL attached

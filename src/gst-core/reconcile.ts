@@ -77,6 +77,10 @@ export interface PurchaseInvoice {
   igst: number;
   cgst: number;
   sgst: number;
+  /** Supplier trade/legal name, when the source carries it — you chase a name, not a GSTIN. */
+  supplierName?: string;
+  /** Invoice date as printed by the source (dd/mm/yyyy in the portal 2B), when available. */
+  invoiceDate?: string;
 }
 
 export interface PurchaseRecon {

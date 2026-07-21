@@ -131,13 +131,36 @@ describe("buildEstimate — bucketing + aggregation", () => {
     const { estimate } = buildEstimate([inv()], {
       period: "2026-06",
       receivedTo: "2026-07-03",
-      needsReviewPending: { count: 4, totalInclGst: 12345.5 },
+      needsReviewPending: { count: 4, totalInclGst: 12345.5, foreignInclGst: {} },
     });
     expect(estimate.basis).toMatch(/^ESTIMATE/);
     expect(estimate.eligibilityNote).toMatch(/pending Shoyab/i);
     expect(estimate.receivedTo).toBe("2026-07-03");
     expect(estimate.caveats.join(" ")).toMatch(/on or before 2026-07-03/);
     expect(estimate.caveats.join(" ")).toMatch(/4 invoice/);
+  });
+
+  it("never fuses a foreign-currency pending total into the rupee one", () => {
+    // The review queue holds USD OIDAR receipts beside rupee bills. Summing $240 into a rupee
+    // subtotal prints it as ₹240 and misstates the queue — each currency has to stand alone.
+    const { estimate } = buildEstimate([inv()], {
+      period: "2026-06",
+      needsReviewPending: { count: 6, totalInclGst: 23994, foreignInclGst: { USD: 240 } },
+    });
+    const caveat = estimate.caveats.find((c) => c.includes("needs_review"))!;
+    expect(caveat).toContain("₹23,994");
+    expect(caveat).toContain("USD 240");
+    expect(caveat).not.toContain("24,234");
+  });
+
+  it("shows only the foreign total when the pending queue holds no rupee invoice at all", () => {
+    const { estimate } = buildEstimate([inv()], {
+      period: "2026-06",
+      needsReviewPending: { count: 2, totalInclGst: 0, foreignInclGst: { USD: 120 } },
+    });
+    const caveat = estimate.caveats.find((c) => c.includes("needs_review"))!;
+    expect(caveat).toContain("USD 120");
+    expect(caveat).not.toContain("₹0");
   });
 });
 
@@ -163,6 +186,7 @@ describe("reconcileVsActual — estimate vs the parsed portal 2B", () => {
       { gstin: "29AAACX1234F1Z5", invoiceNo: "INV-001", taxable: 1000, igst: 0, cgst: 90, sgst: 90 }, // matches, equal
       { gstin: "27AAACR5055K1Z7", invoiceNo: "Z-9", taxable: 1000, igst: 180, cgst: 0, sgst: 0 },     // only in 2B
     ],
+    b2bTotals: { igst: 180, cgst: 90, sgst: 90, taxable: 2000, invoices: 2, matchesSummary: true },
   };
 
   it("splits the invoice match into matched / chase-the-supplier / book-it and diffs the 4(A)(5) heads", () => {

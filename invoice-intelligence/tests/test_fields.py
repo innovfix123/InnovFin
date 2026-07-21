@@ -132,14 +132,84 @@ _ANTHROPIC_OIDAR = (
 )
 
 
-def test_foreign_oidar_seller_not_captured_as_vendor():
-    # The seller (Anthropic OIDAR) GSTIN fails the standard shape, so a label-less grab would take
-    # our OWN bill-to GSTIN as the vendor — a self-issued invoice. It must land in buyer_gstin, and
-    # vendor_gstin must be blank so the invoice (correctly) routes to needs_review.
+def test_foreign_oidar_seller_recorded_as_vendor_not_our_own_gstin():
+    # The seller (Anthropic OIDAR) reg fails the standard GSTIN shape, so a label-less grab would
+    # take our OWN bill-to GSTIN as the vendor — a self-issued invoice. Ours must land in
+    # buyer_gstin, and the vendor must be the seller's labelled "99…" non-resident registration:
+    # that still fails validation (so the line still routes to review) but names the real reason —
+    # an import of service under RCM, not an unknown supplier.
     f = FieldExtractor().extract(_content(text=_ANTHROPIC_OIDAR))
     assert f.value("buyer_gstin") == "29AAICI1603A1Z3"
-    assert f.value("vendor_gstin") is None
+    assert f.value("vendor_gstin") == "9924USA29003OSI"
     assert f.value("currency") == "USD"
+
+
+def test_oidar_rescue_never_displaces_a_real_domestic_vendor():
+    # A domestic seller plus a stray "99…" string elsewhere: the real vendor must win.
+    f = FieldExtractor().extract(_content(
+        "Tax Invoice\nSeller GSTIN: 27AABCU9603R1ZM\n"
+        "VAT Registration India GST: 9924USA29003OSI\n"
+        "Bill to\nInnovfix\nGSTIN 29AAGCR1234M1Z5\nGrand Total 11800\n"
+    ))
+    assert f.value("vendor_gstin") == "27AABCU9603R1ZM"
+
+
+def test_unlabelled_99_string_is_not_taken_as_a_vendor():
+    # The "99…" shape is only ever read under an explicit registration label.
+    f = FieldExtractor().extract(_content("Order 9924USA29003OSI\nBill to\nGSTIN 29AAGCR1234M1Z5\n"))
+    assert f.value("vendor_gstin") is None
+
+
+# A paid RECEIPT (not an invoice): dates itself "Date paid", totals itself with a bare "Total",
+# and prints no invoice date or "amount due" label anywhere.
+_ANTHROPIC_RECEIPT = (
+    "Page 1 of 1\nReceipt\nInvoice number\nGJAVSW60-0003\nReceipt number\n2943-7461-6436\n"
+    "Date paid\nJune 18, 2026\n"
+    "VAT Registration India GST:\n9924USA29003OSI\n"
+    "Anthropic, PBC\n548 Market Street\nSan Francisco, California 94104\nUnited States\n"
+    "support@anthropic.com\n"
+    "Bill to\ndhanush\nHSR layout\nBangalore 560102\nKarnataka\nIndia\ndhanush@innovfix.in\n"
+    "IN GST 29AAICI1603A1Z3\n"
+    "$100.00 paid on June 18, 2026\n"
+    "PAYMENT ADDRESS:\nAnthropic, PBC\nP.O. Box 104477\nPasadena, CA 91189-4477\n"
+    "Description\nQty\nUnit price\nAmount\nMax plan - 5x\n1\n$100.00\n$100.00\n"
+    "Subtotal\n$100.00\nTotal\n$100.00\nAmount paid\n$100.00\n"
+)
+
+
+def test_receipt_date_paid_and_bare_total():
+    # Without "date paid" the line has no period to sit in; without the bare "Total" it has no value.
+    f = FieldExtractor().extract(_content(text=_ANTHROPIC_RECEIPT))
+    assert f.value("invoice_date") == "June 18, 2026"
+    assert f.value("total") == 100.0
+    assert f.value("vendor_gstin") == "9924USA29003OSI"
+
+
+def test_subtotal_is_not_read_as_the_total():
+    f = FieldExtractor().extract(_content("Subtotal\n$90.00\nTotal\n$100.00\n"))
+    assert f.value("total") == 100.0
+
+
+def test_bare_total_without_a_currency_symbol_is_not_a_total():
+    # A "Total Qty" column header must never be read as the invoice total — the bare-total form
+    # only fires on a number introduced by a currency symbol.
+    f = FieldExtractor().extract(_content("Total Qty 5\nGrand Total 11800\n"))
+    assert f.value("total") == 11800.0
+
+
+def test_po_number_not_grabbed_from_inside_a_word_or_a_postal_box():
+    # "support@…" once yielded po_number "rt"; a US supplier's "P.O. Box 104477" yielded "Box".
+    f = FieldExtractor().extract(_content(text=_ANTHROPIC_RECEIPT))
+    assert f.value("po_number") is None
+
+
+def test_po_number_still_extracted_when_genuinely_present():
+    for text, expected in (
+        ("PO 12345\n", "12345"),
+        ("P.O. No: ABC-778\n", "ABC-778"),
+        ("Purchase Order #7788\n", "7788"),
+    ):
+        assert FieldExtractor().extract(_content(text)).value("po_number") == expected
 
 
 def test_currency_iso_code_from_text():

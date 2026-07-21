@@ -123,6 +123,7 @@ export function evaluateLine(inv: RegistryInvoice, rules: EligibilityRules = ELI
     itcTotal: round2(headsTotal(itc)),
     included: flags.length === 0,
     flags,
+    lineItems: inv.lineItems ?? null,
   };
 }
 
@@ -141,7 +142,19 @@ export interface EstimateOptions {
   period: string;               // YYYY-MM — the 2B period being estimated
   receivedTo?: string | null;   // the point-in-time cut already applied to `invoices` by the source
   rules?: EligibilityRules;
-  needsReviewPending?: { count: number; totalInclGst: number } | null;
+  needsReviewPending?: { count: number; totalInclGst: number; foreignInclGst?: Record<string, number> } | null;
+}
+
+/** Render the pending-review value per currency ("₹23,994 + USD 240") — never one fused number. */
+function pendingValue(nrp: { totalInclGst: number; foreignInclGst?: Record<string, number> }): string {
+  const parts: string[] = [];
+  if (nrp.totalInclGst > 0 || !nrp.foreignInclGst || Object.keys(nrp.foreignInclGst).length === 0) {
+    parts.push(`₹${nrp.totalInclGst.toLocaleString("en-IN")}`);
+  }
+  for (const [ccy, amount] of Object.entries(nrp.foreignInclGst ?? {})) {
+    parts.push(`${ccy} ${amount.toLocaleString("en-US")}`);
+  }
+  return parts.join(" + ");
 }
 
 /**
@@ -198,13 +211,14 @@ export function buildEstimate(invoices: RegistryInvoice[], opts: EstimateOptions
     for (const f of l.flags) byFlag[f.code] = (byFlag[f.code] ?? 0) + 1;
   }
 
-  const nrp = opts.needsReviewPending ?? null;
+  const nrpRaw = opts.needsReviewPending ?? null;
+  const nrp = nrpRaw ? { ...nrpRaw, foreignInclGst: nrpRaw.foreignInclGst ?? {} } : null;
   const caveats = [
     "Counts only invoices in hand — suppliers may report purchases the mailbox never received, so the real 2B can be larger.",
     "Supplier-filing risk — an invoice in hand lands in this period's 2B only if the supplier files GSTR-1 by the 11th; late filers push the ITC into a later 2B.",
     "Reverse-charge ITC (imports, notified categories) is self-assessed in GSTR-3B and never enters the 2B B2B tables — such lines are flagged under review, not counted.",
     opts.receivedTo ? `Point-in-time view — only invoices received on or before ${opts.receivedTo} are counted.` : null,
-    nrp && nrp.count > 0 ? `${nrp.count} invoice(s) ≈ ₹${nrp.totalInclGst.toLocaleString("en-IN")} (incl. GST) sit in needs_review for this window — approve them at /invoices to pull them into the estimate.` : null,
+    nrp && nrp.count > 0 ? `${nrp.count} invoice(s) ≈ ${pendingValue(nrp)} (incl. GST) sit in needs_review for this window — approve them at /invoices to pull them into the estimate.` : null,
     undated.length > 0 ? `${undated.length} accepted invoice(s) carry no invoice date — they sit in the review bucket and may belong to this period.` : null,
   ].filter((c): c is string => c !== null);
 

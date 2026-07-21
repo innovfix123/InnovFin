@@ -80,6 +80,11 @@ export function buildGstr2bEstimateServer(): McpServer {
       "The per-invoice detail behind itc_estimate for a period: every accepted registry invoice dated in the " +
       "month (plus undated ones, which route to review), each with its GST breakup (IGST/CGST/SGST/cess), the " +
       "bucket it landed in and every eligibility flag with its reason. bucket=included|review|all (default all). " +
+      "Each line also carries `lineItems` — the per-service charge rows parsed from the invoice itself " +
+      "(description, HSN/SAC, GST%, quantity, amount transacted vs the taxable charge), with per-category " +
+      "subtotals and a check that they sum back to the taxable value: this is WHERE an invoice's taxable (and " +
+      "thus its CGST/SGST/IGST) comes from. It is null when the vendor's invoice layout isn't parsed yet " +
+      "(Cashfree today); the raw text still lives in the registry via the invoices MCP get_invoice. " +
       "Use this to work the review queue ('why is this invoice not counted?'), to eyeball a vendor's lines, or " +
       "to export the estimate register. Point-in-time via received_to, same as itc_estimate. Output is an " +
       "ESTIMATE register, not the filed 2B.",

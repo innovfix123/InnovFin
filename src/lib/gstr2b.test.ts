@@ -39,4 +39,71 @@ describe("parseGstr2b", () => {
     expect(r.invoices.find((i) => i.gstin === "33AABCZ7555P1ZM")?.igst).toBeCloseTo(160169.49, 2);
     expect(r.itcAvailable.taxable).toBeCloseTo(2802.93 + 889830.51, 2);
   });
+
+  // The workbook that actually reaches us has been edited in Excel first: the CA inserts SIX
+  // classification columns (Incharge / Availability / Service / Section / TDS Rate / New Section)
+  // between the supplier name and the invoice details, and the portal splits its headers over two
+  // rows. Reading fixed positions here silently produced garbage — "New Section" as the invoice
+  // number, "Supply Attract Reverse Charge" ("No") as taxable 0, and the TAXABLE VALUE as IGST.
+  const REAL_B2B_SHEET: AOA = [
+    ["Goods and Services Tax  - GSTR-2B"],
+    [],
+    [],
+    ["Taxable inward supplies received from registered persons"],
+    ["GSTIN of supplier", "Trade/Legal name", "", "", "", "", "", "", "Invoice Details", "", "", "",
+     "Place of supply", "Supply Attract Reverse Charge", "Taxable Value (₹)", "Tax Amount", "", "", "",
+     "GSTR-1/1A/IFF/GSTR-5 Period"],
+    ["", "", "Incharge", "Availability of invoice", "Service", "Section", "TDS Rate", "New Section",
+     "Invoice number", "Invoice type", "Invoice Date", "Invoice Value(₹)", "", "", "",
+     "Integrated Tax(₹)", "Central Tax(₹)", "State/UT Tax(₹)", "Cess(₹)", ""],
+    [],
+    [],
+    // Values are synthetic but deliberately all-distinct, so any column shift changes an assertion.
+    ["29AAICP2912R1ZR", "CASHFREE PAYMENTS INDIA PRIVATE LIMITED", "", 0, "Payment Gateway", "194H",
+     0.02, "393(1) [Sl. No. 1(ii)]", "CF/26-27/00001", "Regular", "30/06/2026", 118000, "Karnataka",
+     "No", 100000, 0, 9000, 9000, 0, "Jun'26"],
+  ];
+
+  it("locates B2B columns by header text, not position, when the CA has inserted columns", () => {
+    const r = parseGstr2b({
+      "ITC Available": [["I", "All other ITC", "4(A)(5)", 0, 9000, 9000, 0]],
+      B2B: REAL_B2B_SHEET,
+    });
+    expect(r.invoices).toHaveLength(1);
+    const inv = r.invoices[0];
+    expect(inv.invoiceNo).toBe("CF/26-27/00001"); // not "393(1) [Sl. No. 1(ii)]"
+    expect(inv.taxable).toBeCloseTo(100000, 2);  // not 0 (parsed from "No")
+    expect(inv.igst).toBe(0);                    // not the taxable value
+    expect(inv.cgst).toBeCloseTo(9000, 2);
+    expect(inv.sgst).toBeCloseTo(9000, 2);
+    expect(inv.supplierName).toBe("CASHFREE PAYMENTS INDIA PRIVATE LIMITED");
+    expect(inv.invoiceDate).toBe("30/06/2026");
+  });
+
+  it("cross-checks the B2B rows against the portal's own 4(A)(5) summary", () => {
+    // Agreement between two independently-read parts of the workbook is the tripwire that catches
+    // a column shift — without it a misparse is confident and silent.
+    const r = parseGstr2b({
+      "ITC Available": [["I", "All other ITC", "4(A)(5)", 0, 9000, 9000, 0]],
+      B2B: REAL_B2B_SHEET,
+    });
+    expect(r.b2bTotals.matchesSummary).toBe(true);
+    expect(r.b2bTotals.invoices).toBe(1);
+
+    const shifted = parseGstr2b({
+      "ITC Available": [["I", "All other ITC", "4(A)(5)", 999999, 0, 0, 0]],
+      B2B: REAL_B2B_SHEET,
+    });
+    expect(shifted.b2bTotals.matchesSummary).toBe(false);
+  });
+
+  it("refuses to parse a B2B sheet whose money columns can't be identified", () => {
+    expect(() => parseGstr2b({
+      "ITC Available": [["I", "x", "4(A)(5)", 0, 0, 0, 0]],
+      B2B: [
+        ["GSTIN of supplier", "Trade/Legal name", "mystery", "columns", "here"],
+        ["29AAICP2912R1ZR", "CASHFREE", 1, 2, 3],
+      ],
+    })).toThrow(/could not find column/i);
+  });
 });

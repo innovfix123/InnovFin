@@ -10,6 +10,7 @@
  */
 import { callTool } from "@/lib/invoice-mcp";
 import type { RegistryInvoice } from "./types";
+import { parseLineItems } from "./line-items";
 import { round2 } from "./util";
 
 /** Registry rows fetched per status — far above today's volume; revisit if the registry outgrows it. */
@@ -19,12 +20,14 @@ interface SearchRow {
   doc_id: string;
   invoice_date: string | null;
   total: number | null;
+  currency: string | null;
 }
 
 interface CanonicalDoc {
   doc_id?: string;
   fields?: Record<string, unknown>;
   source?: { sender?: string | null; received_date?: string | null };
+  text?: string | null; // full document text, verbatim — the line-item table is parsed from here
 }
 
 const str = (v: unknown): string | null => {
@@ -41,6 +44,7 @@ const num = (v: unknown): number | null => {
 /** Canonical document → the flat invoice shape compute.ts works on. Exported for tests/smoke. */
 export function toRegistryInvoice(doc: CanonicalDoc): RegistryInvoice {
   const f = doc.fields ?? {};
+  const taxableValue = num(f.taxable_value);
   return {
     docId: String(doc.doc_id ?? ""),
     invoiceNumber: str(f.invoice_number),
@@ -50,7 +54,7 @@ export function toRegistryInvoice(doc: CanonicalDoc): RegistryInvoice {
     vendorGstin: str(f.vendor_gstin),
     buyerGstin: str(f.buyer_gstin),
     currency: str(f.currency),
-    taxableValue: num(f.taxable_value),
+    taxableValue,
     igst: num(f.igst),
     cgst: num(f.cgst),
     sgst: num(f.sgst),
@@ -58,6 +62,7 @@ export function toRegistryInvoice(doc: CanonicalDoc): RegistryInvoice {
     total: num(f.total),
     hsnSac: str(f.hsn_sac),
     sender: str(doc.source?.sender),
+    lineItems: parseLineItems(doc.text, taxableValue),
   };
 }
 
@@ -91,11 +96,29 @@ export async function fetchAcceptedInvoices(receivedTo?: string | null): Promise
 /**
  * Count + gross value of needs_review rows that could belong to the period (dated inside it, or
  * undated) within the same received_to window — surfaced as an estimate caveat, never counted.
+ *
+ * Totals are kept PER CURRENCY and never added together: the queue routinely holds USD OIDAR
+ * receipts (Anthropic and friends) alongside rupee bills, and summing a $100 receipt into a rupee
+ * subtotal overstates the pending value by ~85x per row. Rows with no currency captured are read
+ * as INR — the registry is an Indian purchase mailbox and that is the safe default.
  */
-export async function fetchNeedsReviewPending(period: string, receivedTo?: string | null): Promise<{ count: number; totalInclGst: number }> {
+export async function fetchNeedsReviewPending(
+  period: string,
+  receivedTo?: string | null,
+): Promise<{ count: number; totalInclGst: number; foreignInclGst: Record<string, number> }> {
   const args: Record<string, unknown> = { status: "needs_review", limit: SEARCH_LIMIT };
   if (receivedTo) args.received_to = receivedTo;
   const rows = await callTool<SearchRow[]>("search_invoices", args);
   const relevant = rows.filter((r) => !r.invoice_date || String(r.invoice_date).startsWith(period));
-  return { count: relevant.length, totalInclGst: round2(relevant.reduce((a, r) => a + (Number(r.total) || 0), 0)) };
+
+  let inr = 0;
+  const foreign: Record<string, number> = {};
+  for (const r of relevant) {
+    const amount = Number(r.total) || 0;
+    const ccy = (r.currency ?? "").trim().toUpperCase();
+    if (!ccy || ccy === "INR" || ccy === "RS" || ccy === "₹") inr += amount;
+    else foreign[ccy] = (foreign[ccy] ?? 0) + amount;
+  }
+  for (const k of Object.keys(foreign)) foreign[k] = round2(foreign[k]);
+  return { count: relevant.length, totalInclGst: round2(inr), foreignInclGst: foreign };
 }
