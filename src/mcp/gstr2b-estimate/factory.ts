@@ -18,9 +18,11 @@ import { z } from "zod";
 import { bufferToSheets } from "@/lib/workbook";
 import { parseGstr2b } from "@/lib/gstr2b";
 import { buildEstimate, reconcileVsActual, ELIGIBILITY_NOTE, ESTIMATE_BASIS } from "./compute";
+import { renderEstimateReport } from "./report";
 import { fetchAcceptedInvoices, fetchNeedsReviewPending } from "./source";
 import { assertIsoDate, assertPeriod } from "./util";
 import { REPO_ROOT } from "./env";
+import { registerDriveTools, activeDriveTools } from "@/mcp/drive/factory";
 
 const PERIOD = z.string().regex(/^\d{4}-\d{2}$/, "period must be YYYY-MM");
 const RECEIVED_TO = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "received_to must be YYYY-MM-DD")
@@ -61,7 +63,13 @@ export function buildGstr2bEstimateServer(): McpServer {
       "GSTIN, missing tax breakup, no invoice date (⚠ rules pending Shoyab) — sits in a separate review bucket " +
       "with reasons, never auto-included. Optional received_to=YYYY-MM-DD gives the point-in-time view finance " +
       "pulls early in the month: 'expected ITC for June as of 3 July' → period=2026-06, received_to=2026-07-03. " +
-      "Ask for 'estimated 2B', 'expected ITC', 'ITC estimate as of the Nth' → this tool.",
+      "Ask for 'estimated 2B', 'expected ITC', 'ITC estimate as of the Nth' → this tool.\n\n" +
+      "PRESENTING THE RESULT: the `report` field is the finished markdown breakdown — ITC by tax head, " +
+      "supplier-wise, charge-wise, the review bucket with exclusion reasons, and the pending queue. SHOW IT TO " +
+      "THE USER AS-IS (verbatim, tables intact). Do not re-format it, re-order it, summarise it into prose, or " +
+      "rebuild your own tables from the JSON fields — those fields are there to compute on when asked a follow-up " +
+      "question, not to re-render the report from. Foreign-currency amounts in `report` already carry their ISO " +
+      "code (USD 240, never ₹240); never restate a non-INR figure with a rupee sign.",
     inputSchema: { period: PERIOD, received_to: RECEIVED_TO.optional() },
   }, async ({ period, received_to }) => {
     assertPeriod(period);
@@ -70,8 +78,9 @@ export function buildGstr2bEstimateServer(): McpServer {
       fetchAcceptedInvoices(received_to),
       fetchNeedsReviewPending(period, received_to),
     ]);
-    const { estimate } = buildEstimate(invoices, { period, receivedTo: received_to ?? null, needsReviewPending });
-    return json(estimate);
+    const { estimate, lines } = buildEstimate(invoices, { period, receivedTo: received_to ?? null, needsReviewPending });
+    // `report` is the deliverable; the rest of the payload is the same data to compute on.
+    return json({ report: renderEstimateReport(estimate, lines), ...estimate });
   });
 
   server.registerTool("itc_invoices", {
@@ -139,8 +148,19 @@ export function buildGstr2bEstimateServer(): McpServer {
     return json(reconcileVsActual(lines, twoB, { period, receivedTo: received_to ?? null }));
   });
 
+  // Google Drive tools (drive_*) are MOUNTED here rather than run as their own endpoint: the ITC
+  // numbers and the source documents they came from belong on one connection. Read tools always;
+  // write tools only when DRIVE_MCP_WRITE is on. See src/mcp/drive/factory.ts.
+  registerDriveTools(server);
+
   return server;
 }
 
 /** Tool names exposed by this server — used by the audit layer to validate/label calls. */
-export const GSTR2B_ESTIMATE_TOOLS = ["itc_estimate", "itc_invoices", "itc_reconcile"] as const;
+export const ITC_TOOLS = ["itc_estimate", "itc_invoices", "itc_reconcile"] as const;
+/** Everything this server exposes right now, ITC + the mounted Drive tools (write-flag aware). */
+export function gstr2bEstimateTools(): string[] {
+  return [...ITC_TOOLS, ...activeDriveTools()];
+}
+/** Back-compat: the ITC tool names. Prefer gstr2bEstimateTools() for the full, live list. */
+export const GSTR2B_ESTIMATE_TOOLS = ITC_TOOLS;
