@@ -305,14 +305,22 @@ export async function isInScope(folderId: string): Promise<boolean> {
   }
 }
 
-/** Direct children of a folder (default: the root). Includes subfolders. */
-export async function listChildren(folderId?: string): Promise<DriveFile[]> {
+/**
+ * Direct children of a folder (default: the root). Includes subfolders.
+ *
+ * Reports `capped` because real folders here blow past MAX_RESULTS — `194C_Non_Company` holds 6,277
+ * direct children and `Form 16 A` 3,254. Returning 1000 of those with no signal made a partial listing
+ * indistinguishable from a complete one.
+ */
+export async function listChildren(folderId?: string): Promise<{ files: DriveFile[]; capped: boolean }> {
   const target = folderId?.trim() || rootFolderId();
   if (!(await isInScope(target))) {
     throw new Error(`Drive MCP: folder ${target} is outside the configured folder subtree`);
   }
   const q = `'${esc(target)}' in parents and trashed=false`;
-  return listAll(q, "folder,name");
+  // Ask for one past the cap purely to detect that there is more.
+  const files = await listAll(q, "folder,name", MAX_RESULTS + 1);
+  return { files: files.slice(0, MAX_RESULTS), capped: files.length > MAX_RESULTS };
 }
 
 /**

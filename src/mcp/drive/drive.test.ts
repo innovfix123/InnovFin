@@ -487,6 +487,32 @@ describe("answering from a file — the failure modes that return wrong data qui
     vi.unstubAllGlobals();
   });
 
+  it("flags a file that is in the Trash, so a deleted invoice can't read as current", async () => {
+    // Search and listing filter trashed out, but reading by id does not — the id usually comes from
+    // an earlier search, but it can also be pasted or remembered from before the file was deleted.
+    const out = await callTool(
+      "drive_read_file",
+      { fileId: "gone" },
+      {
+        getMetadata: async () => ({ id: "gone", name: "old-invoice.csv", kind: "file", mimeType: "text/csv", trashed: true }),
+        downloadBytes: async () => Buffer.from("amount\n999"),
+      },
+    );
+    expect(out.file.trashed).toBe(true);
+    expect(out.file.trashedWarning).toMatch(/deleted/i);
+  });
+
+  it("says when a folder listing is cut off, rather than looking complete", async () => {
+    // Real folders here exceed the cap: 194C_Non_Company holds 6,277 direct children.
+    const out = await callTool(
+      "drive_list_files",
+      {},
+      { listChildren: async () => ({ files: [{ id: "1", name: "a", kind: "file", mimeType: "text/plain" }], capped: true }) },
+    );
+    expect(out.capped).toBe(true);
+    expect(out.note).toMatch(/cut off/i);
+  });
+
   it("reports a capped search as capped, so the list is not read as every match", async () => {
     const out = await callTool(
       "drive_search_files",

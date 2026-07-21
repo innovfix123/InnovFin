@@ -21,8 +21,8 @@ async function main(): Promise<void> {
   console.error(`Folder: ${folder}\n`);
 
   console.error("1) drive_list_files (root) …");
-  const children = await listChildren();
-  console.error(`   ${children.length} entries; first few:`);
+  const { files: children, capped } = await listChildren();
+  console.error(`   ${children.length} entries${capped ? " (capped)" : ""}; first few:`);
   for (const f of children.slice(0, 8)) console.error(`   - [${f.kind}] ${f.name} (${f.mimeType}) ${f.id}`);
 
   console.error("\n2) drive_latest_documents (5) …");

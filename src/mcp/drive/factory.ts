@@ -69,6 +69,9 @@ function brief(f: DriveFile) {
     owner: f.owner,
     webViewLink: f.webViewLink,
     ...(f.isShortcut ? { isShortcut: true, shortcutTarget: f.shortcutTarget } : {}),
+    // Listing and search exclude trashed items, but a read by id does not — so without this a file
+    // someone deleted comes back looking exactly like a current one, and its figures read as live.
+    ...(f.trashed ? { trashed: true, trashedWarning: "This file is in the Drive Trash — it was deleted. Do not treat its contents as current." } : {}),
   };
 }
 
@@ -136,10 +139,14 @@ export function registerDriveTools(server: McpServer): McpServer {
       inputSchema: { folderId: z.string().optional().describe("subfolder id to list; omit for the connected root folder") },
     },
     async ({ folderId }) => {
-      const files = await listChildren(folderId);
+      const { files, capped } = await listChildren(folderId);
       return jsonText({
         folderId: folderId?.trim() || rootFolderId(),
         count: files.length,
+        capped,
+        ...(capped
+          ? { note: `This folder holds more than ${files.length} items — this listing is cut off. Use drive_search_files to find a specific file rather than treating this as the full contents.` }
+          : {}),
         files: files.map(brief),
       });
     },
