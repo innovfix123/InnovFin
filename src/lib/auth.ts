@@ -17,6 +17,8 @@ export const ALLOWED_EMAILS = [
   "fida@innovfix.in",
   "jp@innovfix.in",
   "ayush@innovfix.in",
+  "satyam@innovfix.in",
+  "krish@innovfix.in",
 ] as const;
 
 export const SESSION_COOKIE = "if_session";
